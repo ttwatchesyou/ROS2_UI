@@ -32,50 +32,38 @@ const HeaderComponent: React.FC = () => {
         {/* <NameTag>
          Department of Mechatronics and Robotics, Rayong Technical College
         </NameTag> */}
-        {/* <DesktopMenuSection>
-          <StyledButton onClick={() => scrollToSection("dataProtection")}>
-            Data Protection
+        <DesktopMenuSection>
+          <StyledButton onClick={() => router.push("/Service")}>
+            Service
           </StyledButton>
-          <StyledButton onClick={() => scrollToSection("fraudPrevention")}>
-            Fraud Prevention
+          <StyledButton onClick={() => router.push("/TelemetryPage")}>
+            Telemetry
           </StyledButton>
-          <StyledButton onClick={() => scrollToSection("paymentgateway")}>
-            Payment Gateway
+          <StyledButton onClick={() => router.push("/Control")}>
+            Control
           </StyledButton>
-          <StyledButton onClick={() => scrollToSection("kyc")}>
-            Know Your Customer (KYC)
-          </StyledButton>
-          <StyledButton onClick={() => scrollToSection("education")}>
-            Education
-          </StyledButton>
-        </DesktopMenuSection> */}
+        </DesktopMenuSection>
 
-        {/* <MobileMenuIcon onClick={() => setIsMenuOpen(!isMenuOpen)}>
+        <MobileMenuIcon onClick={() => setIsMenuOpen(!isMenuOpen)}>
           <HamburgerDivide toggle={setIsMenuOpen} toggled={isMenuOpen} />
         </MobileMenuIcon>
 
         {isMenuOpen && (
           <>
             <MobileMenu isMenuOpen={isMenuOpen}>
-              <StyledButton onClick={() => scrollToSection("dataProtection")}>
-                Data Protection
-              </StyledButton>
-              <StyledButton onClick={() => scrollToSection("fraudPrevention")}>
-                Fraud Prevention
-              </StyledButton>
-              <StyledButton onClick={() => scrollToSection("paymentgateway")}>
-                Payment Gateway
-              </StyledButton>
-              <StyledButton onClick={() => scrollToSection("kyc")}>
-                Know Your Customer (KYC)
-              </StyledButton>
-              <StyledButton onClick={() => scrollToSection("education")}>
-                Education
-              </StyledButton>
+              <StyledButton onClick={() => router.push("/Service")}>
+            Service
+          </StyledButton>
+          <StyledButton onClick={() => router.push("/TelemetryPage")}>
+            Telemetry
+          </StyledButton>
+          <StyledButton onClick={() => router.push("/Control")}>
+            Control
+          </StyledButton>
             </MobileMenu>
             <Overlay onClick={() => setIsMenuOpen(false)} />
           </>
-        )} */}
+        )}
       </WrapperHeader>
     </StyledHeader>
   );
@@ -106,7 +94,7 @@ const StyledButton = styled.div`
   justify-content: center;
   align-items: center;
   gap: 10px;
-  color: #2f638a;
+  color: #ffdc7c;
   font-family: Prompt;
   font-size: 16px;
   font-weight: 500;
@@ -184,7 +172,7 @@ const WrapperHeader = styled.div`
   padding: 16px 24px;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
   @media (max-width: 1024px) {
   }
 `;
