@@ -36,6 +36,9 @@ const HeaderComponent: React.FC = () => {
           <StyledButton onClick={() => router.push("/Service")}>
             Service
           </StyledButton>
+          <StyledButton onClick={() => router.push("/RobotTuner")}>
+            Tuner
+          </StyledButton>
           <StyledButton onClick={() => router.push("/TelemetryPage")}>
             Telemetry
           </StyledButton>
@@ -52,14 +55,17 @@ const HeaderComponent: React.FC = () => {
           <>
             <MobileMenu isMenuOpen={isMenuOpen}>
               <StyledButton onClick={() => router.push("/Service")}>
-            Service
-          </StyledButton>
-          <StyledButton onClick={() => router.push("/TelemetryPage")}>
-            Telemetry
-          </StyledButton>
-          <StyledButton onClick={() => router.push("/Control")}>
-            Control
-          </StyledButton>
+                Service
+              </StyledButton>
+              <StyledButton onClick={() => router.push("/RobotTuner")}>
+                Tuner
+              </StyledButton>
+              <StyledButton onClick={() => router.push("/TelemetryPage")}>
+                Telemetry
+              </StyledButton>
+              <StyledButton onClick={() => router.push("/Control")}>
+                Control
+              </StyledButton>
             </MobileMenu>
             <Overlay onClick={() => setIsMenuOpen(false)} />
           </>

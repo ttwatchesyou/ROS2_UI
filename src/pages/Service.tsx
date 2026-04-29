@@ -1,7 +1,8 @@
 "use client";
 
+import Head from "next/dist/shared/lib/head";
 import React, { useState, useEffect } from "react";
-import styled from "styled-components";
+import styled, { keyframes } from "styled-components";
 
 const API_BASE_URL = "http://100.127.237.31:8001/api";
 
@@ -10,23 +11,67 @@ interface ServiceData {
   status: string;
 }
 
-const ServiceCard = ({ name, status, onControl, onViewLogs }: any) => (
-  <Card isActive={status === "active"}>
-    <CardHeader>
-      <ServiceName>{name}</ServiceName>
-      <StatusBadge isActive={status === "active"}>{status}</StatusBadge>
-    </CardHeader>
-    <ButtonGroup>
-      <ActionBtn color="#4ade80" onClick={() => onControl(name, "start")}>
-        START
-      </ActionBtn>
-      <ActionBtn color="#f87171" onClick={() => onControl(name, "stop")}>
-        STOP
-      </ActionBtn>
-      <LogBtn onClick={() => onViewLogs(name)}>VIEW LOGS</LogBtn>
-    </ButtonGroup>
-  </Card>
-);
+// ─── loading spinner state per service ───────────────────────────────────────
+type LoadingAction = "start" | "stop" | "restart" | null;
+
+const ServiceCard = ({
+  name,
+  status,
+  onControl,
+  onRestart,
+  onViewLogs,
+}: {
+  name: string;
+  status: string;
+  onControl: (name: string, action: string) => Promise<void>;
+  onRestart: (name: string) => Promise<void>;
+  onViewLogs: (name: string) => void;
+}) => {
+  const [loading, setLoading] = useState<LoadingAction>(null);
+  const isActive = status === "active";
+
+  const handle = async (action: LoadingAction, fn: () => Promise<void>) => {
+    setLoading(action);
+    await fn();
+    setLoading(null);
+  };
+
+  return (
+    <Card $active={isActive}>
+      <CardHeader>
+        <ServiceName>{name}</ServiceName>
+        <StatusBadge $active={isActive}>{status}</StatusBadge>
+      </CardHeader>
+
+      <ButtonGroup>
+        <ActionBtn
+          $color="#4ade80"
+          disabled={loading !== null}
+          onClick={() => handle("start", () => onControl(name, "start"))}
+        >
+          {loading === "start" ? <Spin /> : "▶ START"}
+        </ActionBtn>
+
+        <ActionBtn
+          $color="#f87171"
+          disabled={loading !== null}
+          onClick={() => handle("stop", () => onControl(name, "stop"))}
+        >
+          {loading === "stop" ? <Spin /> : "⏹ STOP"}
+        </ActionBtn>
+
+        <RestartBtn
+          disabled={loading !== null}
+          onClick={() => handle("restart", () => onRestart(name))}
+        >
+          {loading === "restart" ? <Spin $dark /> : "↺ RESTART"}
+        </RestartBtn>
+
+        <LogBtn onClick={() => onViewLogs(name)}>📋 LOGS</LogBtn>
+      </ButtonGroup>
+    </Card>
+  );
+};
 
 export default function ServiceDashboard() {
   const [isClient, setIsClient] = useState(false);
@@ -39,26 +84,33 @@ export default function ServiceDashboard() {
       const res = await fetch(`${API_BASE_URL}/services`);
       const data = await res.json();
       setServices(Array.isArray(data) ? data : data.services || []);
-    } catch (error) {
-      console.error("Fetch Error:", error);
+    } catch (e) {
+      console.error("Fetch Error:", e);
     }
   };
 
   const handleControl = async (name: string, action: string) => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/control`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ service: name, action: action }),
-      });
-      if (res.ok) fetchServices();
-    } catch (error) {
-      console.error("Control Error:", error);
-    }
+    await fetch(`${API_BASE_URL}/control`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ service: name, action }),
+    });
+    await fetchServices();
+  };
+
+  const handleRestart = async (name: string) => {
+    await fetch(`${API_BASE_URL}/restart`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ service: name }),
+    });
+    // รอ 1.5 วิให้ service restart เสร็จก่อน fetch ใหม่
+    await new Promise((r) => setTimeout(r, 1500));
+    await fetchServices();
   };
 
   const handleViewLogs = async (name: string) => {
-    setLogs({ open: true, content: "Loading logs...", title: name });
+    setLogs({ open: true, content: "Loading logs…", title: name });
     try {
       const res = await fetch(`${API_BASE_URL}/logs/${name}`);
       const data = await res.json();
@@ -67,107 +119,140 @@ export default function ServiceDashboard() {
         content: data.logs || "No logs found.",
         title: name,
       });
-    } catch (error) {
+    } catch {
       setLogs({ open: true, content: "Error fetching logs.", title: name });
     }
   };
 
   const handleAddService = async () => {
-    if (!newSvc) return;
-    try {
-      await fetch(`${API_BASE_URL}/add_service`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ service: newSvc }),
-      });
-      setNewSvc("");
-      fetchServices();
-    } catch (error) {
-      console.error("Add Error:", error);
-    }
+    if (!newSvc.trim()) return;
+    await fetch(`${API_BASE_URL}/add_service`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ service: newSvc.trim() }),
+    });
+    setNewSvc("");
+    fetchServices();
+  };
+
+  const handleRemoveService = async (name: string) => {
+    await fetch(`${API_BASE_URL}/remove_service`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ service: name }),
+    });
+    fetchServices();
   };
 
   useEffect(() => {
     setIsClient(true);
     fetchServices();
-    const interval = setInterval(fetchServices, 3000);
-    return () => clearInterval(interval);
+    const id = setInterval(fetchServices, 3000);
+    return () => clearInterval(id);
   }, []);
 
   if (!isClient) return null;
 
   return (
-    <MainSection>
-      <MainBox>
-        <Header>
-          <Title>SUDSAKHON SERVICE</Title>
-          <Subtitle>Backend API connected on Port 8001</Subtitle>
-        </Header>
+    <>
+      <Head>
+        <title>Mechatronics and Robotics</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <link href="/logo/MechaLogo.png" rel="icon" />
+        <meta property="og:title" content="Mechatronics and Robotics" />
+      </Head>
+      <MainSection>
+        <MainBox>
+          <Header>
+            <Title>SUDSAKHON SERVICE</Title>
+            <Subtitle>Backend API connected on Port 8001</Subtitle>
+          </Header>
 
-        <ControlRow>
-          <InputGroup>
-            <StyledInput
-              value={newSvc}
-              onChange={(e) => setNewSvc(e.target.value)}
-              placeholder="service_name.service"
-              onKeyDown={(e) => e.key === "Enter" && handleAddService()}
-            />
-            <AddButton onClick={handleAddService}>Add Service</AddButton>
-          </InputGroup>
-        </ControlRow>
+          <ControlRow>
+            <InputGroup>
+              <StyledInput
+                value={newSvc}
+                onChange={(e) => setNewSvc(e.target.value)}
+                placeholder="service_name.service"
+                onKeyDown={(e) => e.key === "Enter" && handleAddService()}
+              />
+              <AddButton onClick={handleAddService}>Add Service</AddButton>
+            </InputGroup>
+          </ControlRow>
 
-        <ServiceGrid>
-          {services.map((svc) => (
-            <ServiceCard
-              key={svc.name}
-              name={svc.name}
-              status={svc.status}
-              onControl={handleControl}
-              onViewLogs={handleViewLogs}
-            />
-          ))}
-        </ServiceGrid>
+          <ServiceGrid>
+            {services.map((svc) => (
+              <ServiceCard
+                key={svc.name}
+                name={svc.name}
+                status={svc.status}
+                onControl={handleControl}
+                onRestart={handleRestart}
+                onViewLogs={handleViewLogs}
+              />
+            ))}
+          </ServiceGrid>
 
-        {logs.open && (
-          <ModalOverlay onClick={() => setLogs({ ...logs, open: false })}>
-            <ModalContent onClick={(e) => e.stopPropagation()}>
-              <ModalHeader>
-                <ModalTitle># journalctl -u {logs.title}</ModalTitle>
-                <CloseBtn onClick={() => setLogs({ ...logs, open: false })}>
-                  ✕ Close
-                </CloseBtn>
-              </ModalHeader>
-              <LogArea>{logs.content}</LogArea>
-            </ModalContent>
-          </ModalOverlay>
-        )}
-      </MainBox>
-    </MainSection>
+          {logs.open && (
+            <ModalOverlay onClick={() => setLogs({ ...logs, open: false })}>
+              <ModalContent onClick={(e) => e.stopPropagation()}>
+                <ModalHeader>
+                  <ModalTitle># journalctl -u {logs.title}</ModalTitle>
+                  <CloseBtn onClick={() => setLogs({ ...logs, open: false })}>
+                    ✕ Close
+                  </CloseBtn>
+                </ModalHeader>
+                <LogArea>{logs.content}</LogArea>
+              </ModalContent>
+            </ModalOverlay>
+          )}
+        </MainBox>
+      </MainSection>
+    </>
   );
 }
 
-/* --- Styled Components --- */
+const spin = keyframes`from{transform:rotate(0deg)}to{transform:rotate(360deg)}`;
+
+const Spin = styled.span<{ $dark?: boolean }>`
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid ${(p) => (p.$dark ? "#1e3271" : "currentColor")};
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: ${spin} 0.6s linear infinite;
+`;
 
 const MainSection = styled.div`
+  margin-top: 80px;
   display: flex;
   justify-content: center;
   width: 100%;
   min-height: 100vh;
-  padding: 40px 24px;
-  margin-top: 60px;
+  padding: 10px;
   background-color: #fffbde;
+
+  @media (min-width: 768px) {
+    padding: 40px 24px;
+  }
 `;
 
 const MainBox = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 32px;
+  gap: 20px;
   width: 100%;
   max-width: 1200px;
-  padding: 40px;
+  padding: 24px 16px;
   background: #1e3271;
-  border-radius: 16px;
+  border-radius: 20px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+
+  @media (min-width: 768px) {
+    padding: 40px;
+    gap: 32px;
+  }
 `;
 
 const Header = styled.div`
@@ -176,10 +261,14 @@ const Header = styled.div`
 
 const Title = styled.h1`
   margin: 0;
-  font-size: 2.5rem;
+  font-size: 1.8rem;
   font-weight: 800;
   color: #ffdc7c;
-  letter-spacing: 2px;
+  text-align: center;
+
+  @media (min-width: 768px) {
+    font-size: 2.8rem;
+  }
 `;
 
 const Subtitle = styled.p`
@@ -196,108 +285,171 @@ const ControlRow = styled.div`
 
 const InputGroup = styled.div`
   display: flex;
-  gap: 12px;
+  flex-direction: column;
+  gap: 10px;
   width: 100%;
-  max-width: 500px;
+
+  @media (min-width: 600px) {
+    flex-direction: row;
+    max-width: 600px;
+    margin: 0 auto;
+  }
 `;
 
 const StyledInput = styled.input`
-  flex: 1;
-  padding: 12px 18px;
-  background: rgba(0, 0, 0, 0.2);
+  width: 100%;
+  padding: 14px;
+  background: rgba(0, 0, 0, 0.3);
   color: white;
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 10px;
+  border-radius: 12px;
+  font-size: 16px;
   outline: none;
-  transition: 0.2s;
   &:focus {
     border-color: #ffdc7c;
   }
 `;
 
 const AddButton = styled.button`
-  padding: 0 24px;
+  width: 100%;
+  padding: 14px 24px;
   background: #ffdc7c;
   color: #1e3271;
   font-weight: bold;
   border: none;
-  border-radius: 10px;
+  border-radius: 12px;
   cursor: pointer;
+  transition: background 0.15s;
   &:hover {
     background: #ffe6a5;
+  }
+
+  @media (min-width: 600px) {
+    width: auto;
+    white-space: nowrap;
   }
 `;
 
 const ServiceGrid = styled.div`
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 24px;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 20px;
 `;
 
-const Card = styled.div<{ isActive: boolean }>`
-  padding: 20px;
+const Card = styled.div<{ $active: boolean }>`
+  padding: 18px;
   background: rgba(255, 255, 255, 0.05);
-  border-radius: 12px;
-  border-left: 5px solid ${(p) => (p.isActive ? "#4ade80" : "#f87171")};
+  border-radius: 16px;
+  border-left: 6px solid ${(p) => (p.$active ? "#4ade80" : "#f87171")};
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  transition: border-color 0.3s;
 `;
 
 const CardHeader = styled.div`
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
+  align-items: flex-start;
+  gap: 10px;
 `;
 
 const ServiceName = styled.h3`
   margin: 0;
-  font-size: 1.1rem;
+  font-size: 1rem;
   color: white;
+  word-break: break-all;
+  line-height: 1.4;
 `;
 
-const StatusBadge = styled.span<{ isActive: boolean }>`
+const StatusBadge = styled.span<{ $active: boolean }>`
   padding: 4px 8px;
   font-size: 0.7rem;
   font-weight: bold;
   text-transform: uppercase;
-  color: ${(p) => (p.isActive ? "#4ade80" : "#f87171")};
+  color: ${(p) => (p.$active ? "#4ade80" : "#f87171")};
   background: ${(p) =>
-    p.isActive ? "rgba(74, 222, 128, 0.1)" : "rgba(248, 113, 113, 0.1)"};
+    p.$active ? "rgba(74,222,128,0.1)" : "rgba(248,113,113,0.1)"};
   border-radius: 4px;
+  flex-shrink: 0;
 `;
 
 const ButtonGroup = styled.div`
   display: flex;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 16px;
 `;
 
-const ActionBtn = styled.button<{ color: string }>`
-  flex: 1;
-  padding: 6px;
-  background: transparent;
-  color: ${(p) => p.color};
-  font-size: 0.75rem;
-  font-weight: bold;
-  border: 1px solid ${(p) => p.color};
-  border-radius: 6px;
+const ActionBtn = styled.button<{ $color: string }>`
+  padding: 12px;
+  background: ${(p) => (p.$color === "#4ade80" ? "#16a34a" : "#dc2626")};
+  color: white;
+  font-size: 14px;
+  font-weight: 800;
+  border: none;
+  border-radius: 8px;
   cursor: pointer;
-  transition: 0.2s;
-  &:hover {
-    background: ${(p) => p.color};
-    color: #1e3271;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  transition: all 0.15s ease;
+
+  &:hover:not(:disabled) {
+    filter: brightness(1.2);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  }
+
+  &:active:not(:disabled) {
+    transform: scale(0.98);
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+`;
+
+const RestartBtn = styled.button`
+  padding: 12px;
+  background: #d97706;
+  color: white;
+  font-size: 13px;
+  font-weight: 800;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+
+  &:hover:not(:disabled) {
+    background: #f59e0b;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
   }
 `;
 
 const LogBtn = styled.button`
-  flex: 1;
-  padding: 6px;
-  background: rgba(255, 255, 255, 0.1);
-  color: white;
-  font-size: 0.75rem;
-  border: none;
-  border-radius: 6px;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.4);
+  color: #94a3b8;
+  font-size: 14px;
+  font-weight: 600;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
   cursor: pointer;
+  transition: all 0.15s ease;
+
   &:hover {
-    background: rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
   }
 `;
 
