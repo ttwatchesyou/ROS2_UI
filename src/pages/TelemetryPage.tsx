@@ -3,19 +3,42 @@
 import Head from "next/head";
 import React, { useState, useEffect, useRef } from "react";
 import styled, { keyframes, css } from "styled-components";
+import {
+  PlayCircleOutlined,
+  StopFilled,
+  RocketOutlined,
+} from "@ant-design/icons";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// CONFIG
-// ─────────────────────────────────────────────────────────────────────────────
-const API_BASE =
-  process.env.NEXT_PUBLIC_ROBOT_API ?? "http://100.127.237.31:8001";
-const STREAM_URL = "http://100.127.237.31:9090/stream.mjpg";
+export const API_BASE = process.env.NEXT_PUBLIC_ROBOT_API ;
+export const STREAM_URL = process.env.NEXT_PUBLIC_STREAM_URL;
 const POLL_MS = 200;
-const DETECT_POLL_MS = 300; // poll detected_objects ทุก 300 ms
+const DETECT_POLL_MS = 300;
+const MISSION_POLL_MS = 300;
 
-// ─────────────────────────────────────────────────────────────────────────────
-// COLORS
-// ─────────────────────────────────────────────────────────────────────────────
+const rectZonesMode1 = [
+  { name: "table A (R)", x: -2.90, y: -3.70, w: -1.20, h: -0.6 }, 
+  { name: "table B (R)", x: -1.80, y: -3.70, w: 1.20, h: -0.6 }, 
+  { name: "table C (R)", x: -2.90, y: -1.50, w: -1.20, h: -0.6 }, 
+  { name: "table D (R)", x: -1.80, y: -1.50, w: 1.20, h: -0.6 }, 
+  { name: "table E (R)", x: -6.40, y: -1.50, w: 1.20, h: -0.6 }, 
+  { name: "table F (R)", x: -6.40, y: -3.70, w: 1.20, h: -0.6 }, 
+  { name: "start (R)",   x: 0.40,  y: 0.40,  w: -0.80, h: -0.80 }, 
+  { name: "stage (R)",   x: 0.40,  y: 0.40,  w: -7.80, h: -9.0 }, 
+  { name: "mainstage (R)",   x: -1.10,  y: -6.60,  w: -4.80, h: -2.0 }, 
+];
+
+const rectZonesMode2 = [
+  { name: "table A (B)", x: 1.80,  y: -3.70, w: -1.20, h: -0.6 }, 
+  { name: "table B (B)", x: 2.90,  y: -3.70, w: 1.20, h: -0.6 }, 
+  { name: "table C (B)", x: 1.80,  y: -1.50, w: -1.20, h: -0.6 }, 
+  { name: "table D (B)", x: 2.90,  y: -1.50, w: 1.20, h: -0.6 }, 
+  { name: "table E (B)", x: 5.20,  y: -1.50, w: 1.20, h: -0.6 }, 
+  { name: "table F (B)", x: 5.20, y: -3.70, w: 1.20, h: -0.6 },
+  { name: "start (B)",   x: 0.40,  y: 0.40,  w: -0.80, h: -0.80 }, 
+  { name: "stage (B)",   x: -0.40,  y: 0.40,  w: 7.80, h: -9.0 }, 
+  { name: "mainstage (B)",   x: 1.10,  y: -6.60,  w: 4.80, h: -2.0 },
+];
+
 const C = {
   bg: "#0d1117",
   panel: "#1e3271",
@@ -29,199 +52,243 @@ const C = {
   danger: "#f85149",
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ODOMETRY CANVAS
-// ─────────────────────────────────────────────────────────────────────────────
 interface OdomState {
   x: number;
   y: number;
   yaw: number;
 }
+interface DetectEntry {
+  ts: string;
+  msg: string;
+}
+interface MissionStatus {
+  mission_step: number;
+  mission_total_steps: number;
+  mission_running: boolean;
+  team_color: "RED" | "BLUE" | "NONE";
+  program_color: number;
+  program_game: number;
+}
+
+const pulse = keyframes`0%,100%{opacity:1}50%{opacity:.35}`;
+const fadeUp = keyframes`from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}`;
+const blink = keyframes`0%,100%{opacity:1}50%{opacity:0}`;
+const scanPulse = keyframes`0%{box-shadow:0 0 0 0 rgba(0,212,170,0.4)}70%{box-shadow:0 0 0 8px rgba(0,212,170,0)}100%{box-shadow:0 0 0 0 rgba(0,212,170,0)}`;
 
 function OdomCanvas({
   odom,
   trail,
+  mode,
 }: {
   odom: OdomState;
   trail: { x: number; y: number }[];
+  mode: number;
 }) {
   const ref = useRef<HTMLCanvasElement>(null);
+  const [viewState, setViewState] = useState({
+    scale: 1.0,
+    offsetX: 0,
+    offsetY: 0,
+  });
+  const isDragging = useRef(false);
+  const lastPos = useRef({ x: 0, y: 0 });
+
+  const handleWheel = (e: React.WheelEvent) => {
+    setViewState((prev) => ({
+      ...prev,
+      scale: Math.max(0.1, Math.min(prev.scale - e.deltaY * 0.001, 5.0)),
+    }));
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    isDragging.current = true;
+    lastPos.current = { x: e.clientX, y: e.clientY };
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging.current) return;
+    const dx = e.clientX - lastPos.current.x;
+    const dy = e.clientY - lastPos.current.y;
+    
+    setViewState((prev) => ({
+      ...prev,
+      offsetX: prev.offsetX + dx,
+      offsetY: prev.offsetY + dy,
+    }));
+    
+    lastPos.current = { x: e.clientX, y: e.clientY };
+  };
+
+  const handleMouseUp = () => { isDragging.current = false; };
+  const handleTouchStart = (e: React.TouchEvent) => {
+    isDragging.current = true;
+    lastPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!isDragging.current) return;
+    e.preventDefault(); 
+    
+    const dx = e.touches[0].clientX - lastPos.current.x;
+    const dy = e.touches[0].clientY - lastPos.current.y;
+    
+    setViewState((prev) => ({
+      ...prev,
+      offsetX: prev.offsetX + dx,
+      offsetY: prev.offsetY + dy,
+    }));
+    
+    lastPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  };
+
+  const handleTouchEnd = () => { isDragging.current = false; };
 
   useEffect(() => {
     const c = ref.current;
     if (!c) return;
     const ctx = c.getContext("2d");
     if (!ctx) return;
-    const W = c.clientWidth || 300;
-    const H = c.clientHeight || 300;
+
+    const W = c.clientWidth || 300, H = c.clientHeight || 300;
     c.width = W;
     c.height = H;
 
-    // ── คำนวณ bounding box ของ trail + robot ──────────────────────────────
-    const pts = [...trail, { x: odom.x, y: odom.y }];
-    let minX = odom.x,
-      maxX = odom.x,
-      minY = odom.y,
-      maxY = odom.y;
-    for (const p of pts) {
-      minX = Math.min(minX, p.x);
-      maxX = Math.max(maxX, p.x);
-      minY = Math.min(minY, p.y);
-      maxY = Math.max(maxY, p.y);
-    }
+    const VIEW_RANGE_METERS = 8;
+    const BASE_SCALE = Math.min(W, H) / VIEW_RANGE_METERS;
+    const SCALE = BASE_SCALE * viewState.scale;
 
-    // padding รอบข้าง (เมตร) และ SCALE ขั้นต่ำ
-    const PAD = 1.5; // เมตร
-    const rangeX = Math.max(maxX - minX + PAD * 2, PAD * 4);
-    const rangeY = Math.max(maxY - minY + PAD * 2, PAD * 4);
-    const SCALE = Math.min(W / rangeX, H / rangeY); // fit ให้พอดี canvas
+    const cx = W / 2 - odom.x * SCALE + viewState.offsetX;
+    const cy = H / 2 + odom.y * SCALE + viewState.offsetY;
 
-    // origin (pixel) ที่ทำให้ bounding box อยู่กลาง canvas
-    const cx = W / 2 - ((minX + maxX) / 2) * SCALE;
-    const cy = H / 2 + ((minY + maxY) / 2) * SCALE;
-
-    // ── วาด background ───────────────────────────────────────────────────
     ctx.fillStyle = C.bg;
     ctx.fillRect(0, 0, W, H);
 
-    // ── grid: ขนาดตารางปรับตาม SCALE ─────────────────────────────────────
-    // เลือก step ที่ดูดี (0.25 / 0.5 / 1 / 2 / 5 เมตร)
-    const rawStep = 80 / SCALE; // ต้องการ ~80px ต่อช่อง
-    const niceSteps = [0.1, 0.25, 0.5, 1, 2, 5, 10];
-    const gridStep = niceSteps.find((s) => s >= rawStep) ?? 10;
+    const gridStep = 1;
+    const startX = Math.floor((0 - cx) / SCALE);
+    const endX = Math.ceil((W - cx) / SCALE);
+    const startY = Math.floor((cy - H) / SCALE);
+    const endY = Math.ceil(cy / SCALE);
 
-    ctx.lineWidth = 1;
-    // หาช่วง grid ที่ต้องวาด
-    const gMinX = Math.floor(-cx / SCALE / gridStep) * gridStep;
-    const gMaxX = Math.ceil((W - cx) / SCALE / gridStep) * gridStep;
-    const gMinY = Math.floor(-cy / -SCALE / gridStep) * gridStep;
-    const gMaxY = Math.ceil((H - cy) / -SCALE / gridStep) * gridStep;
-
-    for (let gx = gMinX; gx <= gMaxX; gx += gridStep) {
+    for (let gx = startX; gx <= endX; gx += gridStep) {
       const px = cx + gx * SCALE;
-      ctx.strokeStyle = gx === 0 ? "#ffffff28" : C.border;
-      ctx.lineWidth = gx === 0 ? 1.5 : 1;
-      ctx.beginPath();
-      ctx.moveTo(px, 0);
-      ctx.lineTo(px, H);
-      ctx.stroke();
+      ctx.strokeStyle = gx === 0 ? "#ffffff44" : C.border;
+      ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, H); ctx.stroke();
     }
-    for (let gy = gMinY; gy <= gMaxY; gy += gridStep) {
+    for (let gy = startY; gy <= endY; gy += gridStep) {
       const py = cy - gy * SCALE;
-      ctx.strokeStyle = gy === 0 ? "#ffffff28" : C.border;
-      ctx.lineWidth = gy === 0 ? 1.5 : 1;
+      ctx.strokeStyle = gy === 0 ? "#ffffff44" : C.border;
+      ctx.beginPath(); ctx.moveTo(0, py); ctx.lineTo(W, py); ctx.stroke();
+    }
+
+    const currentZones = mode === 1 ? rectZonesMode1 : rectZonesMode2;
+    currentZones.forEach((zone) => {
+      let finalColor = mode === 1 ? C.accent2 : C.accent3;
+
+      if (zone.name.toLowerCase().includes("mainstage")) {
+        finalColor = "#FFFF00"; 
+      } else if (zone.name.toLowerCase().includes("start")) {
+        finalColor = "#FFFFFF"; 
+      }
+
+      const zx = cx + zone.x * SCALE;
+      const zy = cy - zone.y * SCALE;
+      const zw = zone.w * SCALE;
+      const zh = zone.h * SCALE;
+
+      ctx.fillStyle = finalColor + "22"; 
+      ctx.strokeStyle = finalColor;
+      ctx.fillRect(zx, zy - zh, zw, zh);
+      ctx.strokeRect(zx, zy - zh, zw, zh);
+    });
+
+    if (trail && trail.length > 1) {
       ctx.beginPath();
-      ctx.moveTo(0, py);
-      ctx.lineTo(W, py);
+      ctx.strokeStyle = "#00ffee"; 
+      ctx.lineWidth = 2;           
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
+      ctx.setLineDash([]); 
+
+      trail.forEach((point, index) => {
+        const tx = cx + point.x * SCALE;
+        const ty = cy - point.y * SCALE;
+        if (index === 0) {
+          ctx.moveTo(tx, ty);
+        } else {
+          ctx.lineTo(tx, ty);
+        }
+      });
       ctx.stroke();
     }
 
-    // ── scale bar ────────────────────────────────────────────────────────
-    const barM = gridStep; // ยาว 1 grid step เมตร
-    const barPx = barM * SCALE;
-    const bx = 12,
-      by = H - 14;
-    ctx.strokeStyle = C.accent;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(bx, by);
-    ctx.lineTo(bx + barPx, by);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(bx, by - 4);
-    ctx.lineTo(bx, by + 4);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(bx + barPx, by - 4);
-    ctx.lineTo(bx + barPx, by + 4);
-    ctx.stroke();
-    ctx.fillStyle = C.accent;
-    ctx.font = "9px Consolas, monospace";
-    ctx.fillText(
-      `${barM < 1 ? barM * 100 + "cm" : barM + "m"}`,
-      bx + barPx / 2 - 8,
-      by - 6
-    );
+const px2 = cx + odom.x * SCALE;
+const py2 = cy - odom.y * SCALE;
 
-    // ── trail ────────────────────────────────────────────────────────────
-    if (trail.length > 1) {
-      for (let i = 1; i < trail.length; i++) {
-        const alpha = Math.floor((i / trail.length) * 220)
-          .toString(16)
-          .padStart(2, "0");
-        ctx.strokeStyle = `${C.accent}${alpha}`;
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(cx + trail[i - 1].x * SCALE, cy - trail[i - 1].y * SCALE);
-        ctx.lineTo(cx + trail[i].x * SCALE, cy - trail[i].y * SCALE);
-        ctx.stroke();
-      }
-    }
+ctx.save();
+ctx.translate(px2, py2); 
 
-    // ── robot dot + arrow ────────────────────────────────────────────────
-    const px2 = cx + odom.x * SCALE,
-      py2 = cy - odom.y * SCALE;
-    const ex = px2 + 14 * Math.cos(odom.yaw);
-    const ey = py2 - 14 * Math.sin(odom.yaw);
-    ctx.fillStyle = C.accent;
-    ctx.strokeStyle = C.bg;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(px2, py2, 10, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-    const ang = Math.atan2(ey - py2, ex - px2);
-    ctx.strokeStyle = C.bg;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(px2, py2);
-    ctx.lineTo(ex, ey);
-    ctx.stroke();
-    ctx.fillStyle = C.bg;
-    ctx.beginPath();
-    ctx.moveTo(ex, ey);
-    ctx.lineTo(ex - 6 * Math.cos(ang - 0.4), ey - 6 * Math.sin(ang - 0.4));
-    ctx.lineTo(ex - 6 * Math.cos(ang + 0.4), ey - 6 * Math.sin(ang + 0.4));
-    ctx.closePath();
-    ctx.fill();
-  }, [odom, trail]);
-
-  return <OdomCanvasEl ref={ref} />;
+let rotationAngle = odom.yaw;
+if (mode === 2) {
+  rotationAngle = -odom.yaw + Math.PI;
 }
+ctx.rotate(-rotationAngle); 
+const rectW = 0.51 * SCALE; 
+const rectH = 0.52 * SCALE; 
 
-// ─────────────────────────────────────────────────────────────────────────────
-// WHEEL CARD
-// ─────────────────────────────────────────────────────────────────────────────
-// function WheelCard({ title, speed, direction }: { title: string; speed: number; direction: string }) {
-//   return (
-//     <WheelCardWrap>
-//       <WheelTitle>{title}</WheelTitle>
-//       <WheelRow>
-//         <WheelLabel>Vel</WheelLabel>
-//         <WheelValue>{speed.toFixed(2)} <Unit>m/s</Unit></WheelValue>
-//       </WheelRow>
-//       <WheelRow last>
-//         <WheelLabel>Dir</WheelLabel>
-//         <WheelValue $green>{direction}</WheelValue>
-//       </WheelRow>
-//     </WheelCardWrap>
-//   );
-// }
+ctx.fillStyle = "#FF69B4"; 
+ctx.fillRect(-rectW / 2, -rectH / 2, rectW, rectH); 
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DETECTED OBJECTS LOG CARD
-// ─────────────────────────────────────────────────────────────────────────────
-interface DetectEntry {
-  ts: string;
-  msg: string;
+ctx.strokeStyle = "#FFFFFF"; 
+ctx.lineWidth = 1;
+ctx.strokeRect(-rectW / 2, -rectH / 2, rectW, rectH);
+
+ctx.strokeStyle = "#FFFFFF"; 
+ctx.lineWidth = 2;
+ctx.beginPath();
+ctx.moveTo(0, 0);
+ctx.lineTo(rectH * 0.8, 0);
+ctx.stroke();
+
+ctx.fillStyle = "#FFFFFF";
+ctx.beginPath();
+ctx.moveTo(rectH * 0.8, 0);
+ctx.lineTo(rectH * 0.8 - 7, -5);
+ctx.lineTo(rectH * 0.8 - 7, 5);
+ctx.closePath();
+ctx.fill();
+
+ctx.restore();
+
+  }, [odom, trail, mode, viewState]);
+
+  return (
+    <div style={{ position: 'relative', flex: 1, overflow: 'hidden' }}>
+      <OdomCanvasEl 
+        ref={ref} 
+        onWheel={handleWheel}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        style={{ 
+          cursor: isDragging.current ? 'grabbing' : 'grab',
+          touchAction: 'none' 
+        }}
+      />
+      <ResetViewBtn onClick={() => setViewState({ scale: 1, offsetX: 0, offsetY: 0 })}>
+        RESET VIEW
+      </ResetViewBtn>
+    </div>
+  );
 }
 
 function DetectedObjectsCard() {
   const [log, setLog] = useState<DetectEntry[]>([]);
   const [latest, setLatest] = useState<string>("");
-  const [seenCount, setSeenCount] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const lastMsgRef = useRef<string>("");
 
   useEffect(() => {
     let alive = true;
@@ -231,22 +298,14 @@ function DetectedObjectsCard() {
         if (!r.ok) return;
         const d = await r.json();
         if (!alive) return;
-
         setLatest(d.latest ?? "");
-
-        // เพิ่มเฉพาะ entry ใหม่ที่ยังไม่เคยเห็น (ดูจาก length)
         const incoming: DetectEntry[] = d.log ?? [];
         setLog((prev) => {
           if (incoming.length === prev.length) return prev;
-          // เอาแค่ส่วนที่เพิ่มมาใหม่
           const newEntries = incoming.slice(prev.length);
-          const merged = [...prev, ...newEntries].slice(-200);
-          return merged;
+          return [...prev, ...newEntries].slice(-200);
         });
-        setSeenCount(incoming.length);
-      } catch {
-        /* ignore */
-      }
+      } catch {}
     };
     const id = setInterval(poll, DETECT_POLL_MS);
     poll();
@@ -256,14 +315,11 @@ function DetectedObjectsCard() {
     };
   }, []);
 
-  // Auto-scroll ลงล่างเสมอ
   useEffect(() => {
-    if (scrollRef.current) {
+    if (scrollRef.current)
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
   }, [log]);
 
-  // ระบายสีตาม keyword
   const colorize = (msg: string): string => {
     if (!msg) return C.muted;
     const lower = msg.toLowerCase();
@@ -303,14 +359,10 @@ function DetectedObjectsCard() {
           <DetectDot $active={hasObject} />
         </DetectHeaderRight>
       </DetectHeader>
-
-      {/* Latest object — big display */}
       <LatestWrap>
         <LatestLabel>LATEST</LatestLabel>
         <LatestValue $color={colorize(latest)}>{latest || "—"}</LatestValue>
       </LatestWrap>
-
-      {/* Scrolling log */}
       <LogLabel>LOG</LogLabel>
       <LogScroll ref={scrollRef}>
         {log.length === 0 ? (
@@ -328,14 +380,181 @@ function DetectedObjectsCard() {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// MAIN DASHBOARD
-// ─────────────────────────────────────────────────────────────────────────────
+function MissionStatusCard() {
+  const [mission, setMission] = useState<MissionStatus | null>(null);
+  const [latest, setLatest] = useState<string>("");
+  const [hasObj, setHasObj] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    const poll = async () => {
+      try {
+        const r = await fetch(`${API_BASE}/api/mission/status`);
+        if (!r.ok) return;
+        const d: MissionStatus = await r.json();
+        if (alive) setMission(d);
+      } catch {}
+    };
+    const id = setInterval(poll, MISSION_POLL_MS);
+    poll();
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    const poll = async () => {
+      try {
+        const r = await fetch(`${API_BASE}/api/detected_objects`);
+        if (!r.ok) return;
+        const d = await r.json();
+        if (!alive) return;
+        const txt = d.latest ?? "";
+        setLatest(txt);
+        setHasObj(!!(txt && txt.toLowerCase() !== "none" && txt.trim() !== ""));
+      } catch {}
+    };
+    const id = setInterval(poll, DETECT_POLL_MS);
+    poll();
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, []);
+
+  const colorize = (msg: string) => {
+    if (!msg) return C.muted;
+    const l = msg.toLowerCase();
+    if (l.includes("person") || l.includes("human") || l.includes("face"))
+      return "#ff6b35";
+    if (l.includes("none") || msg.trim() === "") return C.muted;
+    if (l.includes("bottle") || l.includes("cup") || l.includes("box"))
+      return "#58a6ff";
+    return C.accent;
+  };
+
+  const colorLabel = mission?.team_color ?? "NONE";
+  const stepNow = mission?.mission_step ?? 0;
+  const totalSteps = mission?.mission_total_steps ?? 0;
+  const isRunning = mission?.mission_running ?? false;
+  const gameNum = mission?.program_game ?? 0;
+  const progress =
+    totalSteps > 0 ? Math.min((stepNow / totalSteps) * 100, 100) : 0;
+
+  return (
+    <MissionCard>
+      <MCardHeader>
+        <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <RocketOutlined /> MISSION STATUS
+        </span>
+        <MHeaderRight>
+          {isRunning ? (
+            <RunBadge>● RUNNING</RunBadge>
+          ) : (
+            <IdleBadge>○ IDLE</IdleBadge>
+          )}
+        </MHeaderRight>
+      </MCardHeader>
+
+      <MInfoRow>
+        <MInfoBox>
+          <MInfoLabel>TEAM</MInfoLabel>
+          <MInfoValue
+            $color={
+              colorLabel === "RED"
+                ? C.accent2
+                : colorLabel === "BLUE"
+                ? C.accent3
+                : C.muted
+            }
+          >
+            {colorLabel}
+          </MInfoValue>
+        </MInfoBox>
+        <MInfoDivider />
+        <MInfoBox>
+          <MInfoLabel>GAME</MInfoLabel>
+          <MInfoValue $color={gameNum > 0 ? C.text : C.muted}>
+            {gameNum > 0 ? `G${gameNum}` : "—"}
+          </MInfoValue>
+        </MInfoBox>
+        <MInfoDivider />
+        <MInfoBox>
+          <MInfoLabel>STEP</MInfoLabel>
+          <MInfoValue $color={isRunning ? C.accent : C.muted}>
+            {stepNow}
+            {totalSteps > 0 ? ` / ${totalSteps}` : ""}
+          </MInfoValue>
+        </MInfoBox>
+      </MInfoRow>
+
+      {totalSteps > 0 && (
+        <ProgressWrap>
+          <ProgressBar style={{ width: `${progress}%` }} $running={isRunning} />
+          <ProgressLabel>{progress.toFixed(0)}%</ProgressLabel>
+        </ProgressWrap>
+      )}
+
+      {totalSteps > 0 && (
+        <StepBubbleRow>
+          {Array.from({ length: Math.min(totalSteps, 20) }, (_, i) => (
+            <StepBubble
+              key={i}
+              $done={i < stepNow}
+              $current={i === stepNow - 1}
+              title={`Step ${i + 1}`}
+            />
+          ))}
+          {totalSteps > 20 && <StepMore>+{totalSteps - 20}</StepMore>}
+        </StepBubbleRow>
+      )}
+
+      {/* <MDetectRow>
+        <MDetectLabel>
+          VISION
+          <DetectDot $active={hasObj} />
+        </MDetectLabel>
+        <MDetectValue $color={colorize(latest)}>{latest || "—"}</MDetectValue>
+      </MDetectRow> */}
+    </MissionCard>
+  );
+}
+
 export default function TelemetryDashboard() {
+  const [activeMode, setActiveMode] = useState(1);
   const [data, setData] = useState<any>(null);
   const [ros, setRos] = useState<"online" | "offline">("offline");
   const [odom, setOdom] = useState<OdomState>({ x: 0, y: 0, yaw: 0 });
   const [trail, setTrail] = useState<{ x: number; y: number }[]>([]);
+  const [selectedColor, setSelectedColor] = useState<0 | 1 | null>(null);
+  const [selectedGame, setSelectedGame] = useState<number | null>(null);
+
+  async function post(path: string, body: Record<string, unknown> = {}) {
+    try {
+      const r = await fetch(`${API_BASE}${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      return r.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  const onSelectColor = (color: 0 | 1) => {
+    setSelectedColor(color);
+    setActiveMode(color === 0 ? 1 : 2);
+    post("/api/cmd/program_color", { color });
+  };
+  const onSelectGame = (game: number) => {
+    setSelectedGame(game);
+    post("/api/cmd/program_game", { game });
+  };
+  const onStart = () => post("/api/cmd/program_command", { command: 1 });
+  const onEStop = () => post("/api/cmd/estop");
 
   useEffect(() => {
     let alive = true;
@@ -365,14 +584,6 @@ export default function TelemetryDashboard() {
   }, []);
 
   const yawDeg = ((odom.yaw * 180) / Math.PI + 360) % 360;
-  const isForward = (data?.linear_x ?? 0) >= 0;
-  const dirLabel = isForward ? "FWD" : "REV";
-
-  const w = data?.wheels ?? {};
-  const flSpeed = w?.fl?.speed ?? 0;
-  const frSpeed = w?.fr?.speed ?? 0;
-  const rlSpeed = w?.rl?.speed ?? 0;
-  const rrSpeed = w?.rr?.speed ?? 0;
 
   return (
     <>
@@ -380,7 +591,6 @@ export default function TelemetryDashboard() {
         <title>Mechatronics and Robotics</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link href="/logo/MechaLogo.png" rel="icon" />
-        <meta property="og:title" content="Mechatronics and Robotics" />
       </Head>
       <Root>
         <StatusBar>
@@ -391,14 +601,13 @@ export default function TelemetryDashboard() {
         </StatusBar>
 
         <MainGrid>
-          {/* ══════════ LEFT ══════════ */}
           <LeftCol>
             <Card style={{ flex: 1 }}>
               <CardHeader>
-                ODOMETRY MAP
+                <HeaderLeft>ODOMETRY MAP</HeaderLeft>
                 <ClearBtn onClick={() => setTrail([])}>🗑 CLEAR</ClearBtn>
               </CardHeader>
-              <OdomCanvas odom={odom} trail={trail} />
+              <OdomCanvas odom={odom} trail={trail} mode={activeMode} />
               <OdomFooter>
                 <OC>
                   X: {odom.x >= 0 ? "+" : ""}
@@ -410,38 +619,50 @@ export default function TelemetryDashboard() {
                 </OC>
                 <OC>θ: {yawDeg.toFixed(1)}°</OC>
               </OdomFooter>
-
-              {/* <CardHeader style={{ borderTop: `1px solid ${C.border}` }}>
-      WHEEL STATUS <LiveBadge>● LIVE</LiveBadge>
-    </CardHeader>
-    <WheelGrid>
-      <WheelCard title="FRONT LEFT"  speed={flSpeed} direction={dirLabel} />
-      <WheelCard title="FRONT RIGHT" speed={frSpeed} direction={dirLabel} />
-      <WheelCard title="REAR LEFT"   speed={rlSpeed} direction={dirLabel} />
-      <WheelCard title="REAR RIGHT"  speed={rrSpeed} direction={dirLabel} />
-    </WheelGrid>
-
-    <Divider /> */}
-
-              <SubHeader>MOVEMENT VECTOR</SubHeader>
-              <VectorGrid>
-                <VecBox>
-                  <VecVal>{(data?.linear_x ?? 0).toFixed(2)}</VecVal>
-                  <VecLbl>X (m/s)</VecLbl>
-                </VecBox>
-                <VecBox>
-                  <VecVal>{(data?.linear_y ?? 0).toFixed(2)}</VecVal>
-                  <VecLbl>Y (m/s)</VecLbl>
-                </VecBox>
-                <VecBox>
-                  <VecVal>{(data?.angular_z ?? 0).toFixed(2)}</VecVal>
-                  <VecLbl>Z (rad/s)</VecLbl>
-                </VecBox>
-              </VectorGrid>
+              <CardHeader>
+                <RocketOutlined /> MISSION
+              </CardHeader>
+              <MissionBody>
+                <SectionLabel>TEAM COLOR</SectionLabel>
+                <ButtonGroup>
+                  <ToggleBtn
+                    $active={selectedColor === 0}
+                    $variant="red"
+                    onClick={() => onSelectColor(0)}
+                  >
+                    <PlayCircleOutlined /> RED
+                  </ToggleBtn>
+                  <ToggleBtn
+                    $active={selectedColor === 1}
+                    $variant="blue"
+                    onClick={() => onSelectColor(1)}
+                  >
+                    <PlayCircleOutlined /> BLUE
+                  </ToggleBtn>
+                </ButtonGroup>
+                <SectionLabel style={{ marginTop: 14 }}>GAME MODE</SectionLabel>
+                <GameGrid>
+                  {Array.from({ length: 10 }, (_, i) => i + 1).map((g) => (
+                    <GameBtn
+                      key={g}
+                      $active={selectedGame === g}
+                      onClick={() => onSelectGame(g)}
+                    >
+                      G{g}
+                    </GameBtn>
+                  ))}
+                </GameGrid>
+                <ActionRowGrid style={{ marginTop: 14 }}>
+                  <ActionBtn onClick={onStart}>START</ActionBtn>
+                </ActionRowGrid>
+                <EStopSection>
+                  <EStopButton onClick={onEStop}>
+                    <StopFilled style={{ fontSize: "1.5rem" }} /> E-STOP
+                  </EStopButton>
+                </EStopSection>
+              </MissionBody>
             </Card>
           </LeftCol>
-
-          {/* ══════════ RIGHT ══════════ */}
           <RightCol>
             <Card>
               <CardHeader>
@@ -460,9 +681,8 @@ export default function TelemetryDashboard() {
                 <img src={STREAM_URL} alt="live" />
               </StreamWrap>
             </Card>
-
-            {/* ── Detected Objects ── */}
-            <DetectedObjectsCard />
+            <MissionStatusCard />
+             <DetectedObjectsCard />
           </RightCol>
         </MainGrid>
 
@@ -472,16 +692,6 @@ export default function TelemetryDashboard() {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ANIMATIONS
-// ─────────────────────────────────────────────────────────────────────────────
-const pulse = keyframes`0%,100%{opacity:1}50%{opacity:.35}`;
-const fadeUp = keyframes`from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}`;
-const blink = keyframes`0%,100%{opacity:1}50%{opacity:0}`;
-
-// ─────────────────────────────────────────────────────────────────────────────
-// STYLED COMPONENTS
-// ─────────────────────────────────────────────────────────────────────────────
 const Root = styled.div`
   min-height: 100vh;
   background: #fffbde;
@@ -491,8 +701,8 @@ const Root = styled.div`
   flex-direction: column;
   gap: 10px;
   box-sizing: border-box;
+  font-family: "Consolas", "Courier New", monospace;
 `;
-
 const StatusBar = styled.div`
   display: flex;
   align-items: center;
@@ -502,14 +712,12 @@ const StatusBar = styled.div`
   padding: 8px 16px;
   border: 1px solid ${C.border};
 `;
-
 const STitle = styled.span`
   font-size: 11px;
   font-weight: 700;
   color: ${C.text};
   letter-spacing: 2px;
 `;
-
 const RosStatus = styled.span<{ $online: boolean }>`
   font-size: 10px;
   letter-spacing: 1px;
@@ -520,30 +728,25 @@ const RosStatus = styled.span<{ $online: boolean }>`
       animation: ${pulse} 3s ease-in-out infinite;
     `}
 `;
-
 const MainGrid = styled.div`
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
   flex: 1;
   min-height: 0;
-
   @media (max-width: 860px) {
     grid-template-columns: 1fr;
   }
 `;
-
 const LeftCol = styled.div`
   display: flex;
   flex-direction: column;
 `;
-
 const RightCol = styled.div`
   display: flex;
   flex-direction: column;
   gap: 10px;
 `;
-
 const Card = styled.div`
   background: ${C.panel};
   border-radius: 12px;
@@ -551,7 +754,6 @@ const Card = styled.div`
   overflow: hidden;
   animation: ${fadeUp} 0.3s ease;
 `;
-
 const CardHeader = styled.div`
   display: flex;
   align-items: center;
@@ -563,107 +765,15 @@ const CardHeader = styled.div`
   color: ${C.text};
   border-bottom: 1px solid ${C.border};
 `;
-
-const LiveBadge = styled.span`
-  font-size: 9px;
-  color: ${C.success};
-  animation: ${pulse} 2s ease-in-out infinite;
-`;
-
-const Divider = styled.div`
-  height: 1px;
-  background: ${C.border};
-  margin: 6px 0;
-`;
-
-const SubHeader = styled.div`
-  padding: 6px 14px 3px;
-  font-size: 9px;
-  letter-spacing: 1.4px;
-  color: ${C.muted};
-  text-align: center;
-`;
-
-const WheelGrid = styled.div`
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1px;
-  background: ${C.border};
-`;
-
-const WheelCardWrap = styled.div`
-  background: ${C.panel};
-  padding: 10px 12px;
+const HeaderLeft = styled.div`
   display: flex;
-  flex-direction: column;
-  gap: 3px;
-`;
-
-const WheelTitle = styled.div`
-  font-size: 8px;
-  letter-spacing: 1px;
-  color: ${C.muted};
-  margin-bottom: 3px;
-`;
-
-const WheelRow = styled.div<{ last?: boolean }>`
-  display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding: 2px 0;
-  border-bottom: ${(p) => (p.last ? "none" : `1px solid ${C.border}`)};
+  gap: 12px;
 `;
-
-const WheelLabel = styled.span`
-  font-size: 9px;
-  color: ${C.muted};
-`;
-
-const WheelValue = styled.span<{ $green?: boolean }>`
-  font-size: 11px;
-  font-family: "Consolas", monospace;
-  font-weight: 700;
-  color: ${(p) => (p.$green ? "#4ade80" : "#fff")};
-`;
-
-const Unit = styled.span`
-  font-size: 8px;
-  color: ${C.muted};
-`;
-
-const VectorGrid = styled.div`
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 6px;
-  padding: 6px 12px 12px;
-  text-align: center;
-`;
-
-const VecBox = styled.div`
-  background: ${C.bg};
-  border-radius: 8px;
-  padding: 8px 4px;
-  border: 1px solid ${C.border};
-`;
-
-const VecVal = styled.div`
-  color: ${C.text};
-  font-size: 1rem;
-  font-weight: 700;
-  font-family: "Consolas", monospace;
-`;
-
-const VecLbl = styled.div`
-  color: ${C.muted};
-  font-size: 0.58rem;
-  margin-top: 3px;
-`;
-
 const StreamWrap = styled.div`
   aspect-ratio: 16 / 9;
   background: #000;
   overflow: hidden;
-
   img {
     width: 100%;
     height: 100%;
@@ -671,7 +781,6 @@ const StreamWrap = styled.div`
     display: block;
   }
 `;
-
 const OdomCanvasEl = styled.canvas`
   display: block;
   width: 100%;
@@ -679,19 +788,34 @@ const OdomCanvasEl = styled.canvas`
   flex: 1;
   background: ${C.bg};
 `;
-
+const ResetViewBtn = styled.button`
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: ${C.accent};
+  color: ${C.bg};
+  border: none;
+  border-radius: 4px;
+  padding: 6px 12px;
+  font-size: 9px;
+  font-weight: 700;
+  cursor: pointer;
+  z-index: 10;
+  transition: opacity 0.15s;
+  &:hover {
+    opacity: 0.8;
+  }
+`;
 const OdomFooter = styled.div`
   display: flex;
   gap: 16px;
   padding: 7px 14px;
   border-top: 1px solid ${C.border};
 `;
-
 const OC = styled.span`
   font-size: 18px;
   color: ${C.accent};
 `;
-
 const ClearBtn = styled.button`
   background: ${C.border};
   color: ${C.text};
@@ -707,145 +831,112 @@ const ClearBtn = styled.button`
     color: ${C.bg};
   }
 `;
-
-// ── Detected Objects Card ──────────────────────────────────────────────────
-const DetectCard = styled.div`
-  background: ${C.panel};
-  border-radius: 12px;
-  border: 1px solid ${C.border};
-  overflow: hidden;
+const MissionBody = styled.div`
+  padding: 14px;
   display: flex;
   flex-direction: column;
-  flex: 1;
-  min-height: 0;
-  animation: ${fadeUp} 0.3s ease;
-`;
-
-const DetectHeader = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 9px 14px;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 1.8px;
-  color: ${C.text};
-  border-bottom: 1px solid ${C.border};
-  flex-shrink: 0;
-`;
-
-const DetectHeaderRight = styled.div`
-  display: flex;
-  align-items: center;
   gap: 8px;
 `;
-
-const TopicBadge = styled.span`
-  font-size: 7px;
-  color: ${C.accent3};
-  letter-spacing: 0.5px;
-  font-family: "Consolas", monospace;
-  background: ${C.bg};
-  padding: 2px 6px;
-  border-radius: 3px;
-  border: 1px solid ${C.border};
-`;
-
-const DetectDot = styled.span<{ $active: boolean }>`
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: ${(p) => (p.$active ? C.success : C.border)};
-  display: inline-block;
-  flex-shrink: 0;
-  ${(p) =>
-    p.$active &&
-    css`
-      animation: ${blink} 1s ease-in-out infinite;
-    `}
-`;
-
-const LatestWrap = styled.div`
-  padding: 12px 14px 8px;
-  border-bottom: 1px solid ${C.border};
-  flex-shrink: 0;
-`;
-
-const LatestLabel = styled.div`
-  font-size: 7px;
-  letter-spacing: 1.5px;
-  color: ${C.muted};
+const SectionLabel = styled.div`
+  color: rgba(255, 220, 124, 0.6);
+  font-size: 0.65rem;
+  letter-spacing: 1px;
   margin-bottom: 4px;
 `;
-
-const LatestValue = styled.div<{ $color: string }>`
-  font-size: 1rem;
-  font-weight: 700;
-  font-family: "Consolas", monospace;
-  color: ${(p) => p.$color};
-  letter-spacing: 0.5px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-`;
-
-const LogLabel = styled.div`
-  padding: 6px 14px 3px;
-  font-size: 7px;
-  letter-spacing: 1.5px;
-  color: ${C.muted};
-  flex-shrink: 0;
-`;
-
-const LogScroll = styled.div`
-  flex: 1;
-  overflow-y: auto;
-  padding: 4px 14px 10px;
-  min-height: 80px;
-  max-height: 220px;
-
-  &::-webkit-scrollbar {
-    width: 3px;
-  }
-  &::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  &::-webkit-scrollbar-thumb {
-    background: ${C.border};
-    border-radius: 2px;
-  }
-`;
-
-const LogEmpty = styled.div`
-  font-size: 9px;
-  color: ${C.muted};
-  padding: 8px 0;
-  text-align: center;
-  font-family: "Consolas", monospace;
-`;
-
-const LogLine = styled.div<{ $color: string }>`
+const ButtonGroup = styled.div`
   display: flex;
+  flex-direction: column;
   gap: 8px;
-  align-items: baseline;
-  padding: 2px 0;
-  border-bottom: 1px solid ${C.border}22;
-  font-family: "Consolas", monospace;
-  font-size: 9px;
-  line-height: 1.6;
 `;
-
-const LogTs = styled.span`
-  color: ${C.muted};
-  flex-shrink: 0;
-  font-size: 8px;
+const ToggleBtn = styled.button<{ $active: boolean; $variant: "red" | "blue" }>`
+  height: 48px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: bold;
+  color: white;
+  border: 2px solid ${(p) => (p.$active ? "#ffdc7c" : "transparent")};
+  box-shadow: ${(p) => (p.$active ? "0 0 12px rgba(255,220,124,0.4)" : "none")};
+  background: ${(p) =>
+    p.$variant === "red"
+      ? p.$active
+        ? "#ff4d4f"
+        : "#4a1b1b"
+      : p.$active
+      ? "#1677ff"
+      : "#1b2a4a"};
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
 `;
-
-const LogMsg = styled.span<{ color?: string }>`
-  color: inherit;
-  word-break: break-all;
+const GameGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 5px;
 `;
-
+const GameBtn = styled.button<{ $active: boolean }>`
+  height: 36px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: bold;
+  background: ${(p) => (p.$active ? "#ffdc7c" : "rgba(255,255,255,0.05)")};
+  color: ${(p) => (p.$active ? "#1e3271" : "#ffdc7c")};
+  border: 1px solid ${(p) => (p.$active ? "#ffdc7c" : "rgba(255,220,124,0.2)")};
+  transition: all 0.15s;
+  &:hover {
+    border-color: #ffdc7c;
+  }
+`;
+const ActionRowGrid = styled.div`
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+`;
+const ActionBtn = styled.button<{ $danger?: boolean }>`
+  height: 46px;
+  font-weight: bold;
+  border-radius: 10px;
+  width: 100%;
+  cursor: pointer;
+  border: none;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: ${(p) => (p.$danger ? "#ff4d4f" : "#1677ff")};
+  color: white;
+  transition: opacity 0.15s;
+  &:hover {
+    opacity: 0.85;
+  }
+`;
+const EStopSection = styled.div`
+  display: flex;
+  justify-content: center;
+  padding-top: 10px;
+`;
+const EStopButton = styled.button`
+  width: 90px;
+  height: 90px;
+  border-radius: 50%;
+  background: #ff4d4f;
+  color: white;
+  border: 4px solid #820014;
+  font-weight: 900;
+  font-size: 0.7rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  animation: ${pulse} 2s infinite;
+  &:active {
+    transform: scale(0.93);
+  }
+`;
 const Loader = styled.div`
   position: fixed;
   inset: 0;
@@ -858,4 +949,275 @@ const Loader = styled.div`
   letter-spacing: 2px;
   color: ${C.panel};
   z-index: 999;
+`;
+
+// ── Detected Objects Card ────────────────────────────────────────────────────
+const DetectCard = styled.div`
+  background: ${C.panel};
+  border-radius: 12px;
+  border: 1px solid ${C.border};
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  max-height: 280px;
+  flex-shrink: 0;
+  animation: ${fadeUp} 0.3s ease;
+`;
+const DetectHeader = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 14px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.8px;
+  color: ${C.text};
+  border-bottom: 1px solid ${C.border};
+  flex-shrink: 0;
+`;
+const DetectHeaderRight = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+`;
+const TopicBadge = styled.span`
+  font-size: 7px;
+  color: ${C.accent3};
+  letter-spacing: 0.5px;
+  font-family: "Consolas", monospace;
+  background: ${C.bg};
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid ${C.border};
+`;
+const LatestWrap = styled.div`
+  padding: 10px 14px 8px;
+  border-bottom: 1px solid ${C.border};
+  flex-shrink: 0;
+`;
+const LatestLabel = styled.div`
+  font-size: 7px;
+  letter-spacing: 1.5px;
+  color: ${C.muted};
+  margin-bottom: 4px;
+`;
+const LatestValue = styled.div<{ $color: string }>`
+  font-size: 1rem;
+  font-weight: 700;
+  font-family: "Consolas", monospace;
+  color: ${(p) => p.$color};
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`;
+const LogLabel = styled.div`
+  padding: 5px 14px 2px;
+  font-size: 7px;
+  letter-spacing: 1.5px;
+  color: ${C.muted};
+  flex-shrink: 0;
+`;
+const LogScroll = styled.div`
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 14px 8px;
+  &::-webkit-scrollbar {
+    width: 3px;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: ${C.border};
+    border-radius: 2px;
+  }
+`;
+const LogEmpty = styled.div`
+  font-size: 9px;
+  color: ${C.muted};
+  padding: 8px 0;
+  text-align: center;
+  font-family: "Consolas", monospace;
+`;
+const LogLine = styled.div<{ $color: string }>`
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 2px 0;
+  border-bottom: 1px solid ${C.border}22;
+  font-family: "Consolas", monospace;
+  font-size: 9px;
+  line-height: 1.6;
+  color: ${(p) => p.$color};
+`;
+const LogTs = styled.span`
+  color: ${C.muted};
+  flex-shrink: 0;
+  font-size: 8px;
+`;
+const LogMsg = styled.span`
+  color: inherit;
+  word-break: break-all;
+`;
+
+// ── Mission Status Card ───────────────────────────────────────────────────────
+const MissionCard = styled.div`
+  background: ${C.panel};
+  border-radius: 12px;
+  border: 1px solid ${C.border};
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  animation: ${fadeUp} 0.3s ease;
+`;
+const MCardHeader = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 14px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.8px;
+  color: ${C.text};
+  border-bottom: 1px solid ${C.border};
+  flex-shrink: 0;
+`;
+const MHeaderRight = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+`;
+const RunBadge = styled.span`
+  font-size: 8px;
+  color: ${C.success};
+  letter-spacing: 1px;
+  animation: ${pulse} 2s ease-in-out infinite;
+`;
+const IdleBadge = styled.span`
+  font-size: 8px;
+  color: ${C.muted};
+  letter-spacing: 1px;
+`;
+const MInfoRow = styled.div`
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid ${C.border};
+  flex-shrink: 0;
+`;
+const MInfoBox = styled.div`
+  flex: 1;
+  text-align: center;
+`;
+const MInfoLabel = styled.div`
+  font-size: 7px;
+  color: ${C.muted};
+  letter-spacing: 1.5px;
+  margin-bottom: 4px;
+`;
+const MInfoValue = styled.div<{ $color: string }>`
+  font-size: 18px;
+  font-weight: 700;
+  color: ${(p) => p.$color};
+  font-family: "Consolas", monospace;
+`;
+const MInfoDivider = styled.div`
+  width: 1px;
+  height: 36px;
+  background: ${C.border};
+  flex-shrink: 0;
+`;
+
+const ProgressWrap = styled.div`
+  position: relative;
+  margin: 10px 14px 0;
+  height: 6px;
+  background: ${C.border};
+  border-radius: 3px;
+  overflow: visible;
+  flex-shrink: 0;
+`;
+const ProgressBar = styled.div<{ $running: boolean }>`
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.4s ease;
+  background: ${(p) => (p.$running ? C.accent : C.muted)};
+  ${(p) =>
+    p.$running &&
+    css`
+      animation: ${scanPulse} 2s ease-in-out infinite;
+    `}
+`;
+const ProgressLabel = styled.div`
+  position: absolute;
+  right: 0;
+  top: -16px;
+  font-size: 8px;
+  color: ${C.muted};
+  font-family: "Consolas", monospace;
+`;
+
+const StepBubbleRow = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 10px 14px 4px;
+  flex-shrink: 0;
+`;
+const StepBubble = styled.div<{ $done: boolean; $current: boolean }>`
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: ${(p) =>
+    p.$current ? C.accent : p.$done ? C.accent + "88" : C.border};
+  border: 1px solid ${(p) => (p.$current ? C.accent : "transparent")};
+  transition: background 0.3s;
+  ${(p) =>
+    p.$current &&
+    css`
+      animation: ${scanPulse} 1.5s ease-in-out infinite;
+    `}
+`;
+const StepMore = styled.span`
+  font-size: 8px;
+  color: ${C.muted};
+  line-height: 10px;
+`;
+
+const MDetectRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-top: 1px solid ${C.border};
+  flex-shrink: 0;
+`;
+const MDetectLabel = styled.div`
+  font-size: 8px;
+  color: ${C.muted};
+  letter-spacing: 1.5px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+`;
+
+const MDetectValue = styled.div<{ $color: string }>`
+  font-size: 12px;
+  font-weight: 700;
+  font-family: "Consolas", monospace;
+  color: ${(p) => p.$color};
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+`;
+const DetectDot = styled.span<{ $active: boolean }>`
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  background: ${(p) => (p.$active ? C.success : C.border)};
+  ${(p) =>
+    p.$active &&
+    css`
+      animation: ${blink} 1s ease-in-out infinite;
+    `}
 `;

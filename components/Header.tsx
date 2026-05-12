@@ -45,6 +45,9 @@ const HeaderComponent: React.FC = () => {
           <StyledButton onClick={() => router.push("/Control")}>
             Control
           </StyledButton>
+          {/* <StyledButton onClick={() => router.push("/Mission")}>
+            Mission
+          </StyledButton> */}
         </DesktopMenuSection>
 
         <MobileMenuIcon onClick={() => setIsMenuOpen(!isMenuOpen)}>
@@ -66,6 +69,9 @@ const HeaderComponent: React.FC = () => {
               <StyledButton onClick={() => router.push("/Control")}>
                 Control
               </StyledButton>
+              {/* <StyledButton onClick={() => router.push("/Mission")}>
+                Mission
+              </StyledButton> */}
             </MobileMenu>
             <Overlay onClick={() => setIsMenuOpen(false)} />
           </>

@@ -4,16 +4,9 @@ import Head from "next/dist/shared/lib/head";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import styled, { keyframes, css } from "styled-components";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// CONFIG — เปลี่ยน IP ตรงนี้ที่เดียว
-// ─────────────────────────────────────────────────────────────────────────────
-const API_BASE =
-  process.env.NEXT_PUBLIC_ROBOT_API ?? "http://100.127.237.31:8001";
-const TELEMETRY_INTERVAL_MS = 100; // poll /api/telemetry ทุก 100 ms
+export const API_BASE = process.env.NEXT_PUBLIC_ROBOT_API || "";
+const TELEMETRY_INTERVAL_MS = 100;
 
-// ─────────────────────────────────────────────────────────────────────────────
-// TYPES
-// ─────────────────────────────────────────────────────────────────────────────
 interface OdomState {
   x: number;
   y: number;
@@ -31,9 +24,7 @@ interface SliderCfg {
   hi: number;
   resolution: number;
 }
-// ─────────────────────────────────────────────────────────────────────────────
-// API HELPER
-// ─────────────────────────────────────────────────────────────────────────────
+
 async function apiPost(
   path: string,
   body: Record<string, unknown>
@@ -50,9 +41,7 @@ async function apiPost(
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SLIDER ROW
-// ─────────────────────────────────────────────────────────────────────────────
+
 function SliderRow({
   label,
   value,
@@ -99,9 +88,6 @@ function SliderRow({
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PROFILE PANEL
-// ─────────────────────────────────────────────────────────────────────────────
 function ProfilePanel({
   title,
   accent,
@@ -158,10 +144,6 @@ function ProfilePanel({
     </>
   );
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// ODOMETRY CANVAS
-// ─────────────────────────────────────────────────────────────────────────────
 function OdomCanvas({
   odom,
   trail,
@@ -210,7 +192,6 @@ function OdomCanvas({
     ctx.moveTo(0, cy);
     ctx.lineTo(W, cy);
     ctx.stroke();
-    // trail
     if (trail.length > 1) {
       for (let i = 1; i < trail.length; i++) {
         ctx.strokeStyle = i === trail.length - 1 ? C.accent : C.muted + "66";
@@ -221,7 +202,6 @@ function OdomCanvas({
         ctx.stroke();
       }
     }
-    // goal marker
     if (goal) {
       const gx = cx + goal.x * SCALE,
         gy = cy - goal.y * SCALE;
@@ -239,7 +219,6 @@ function OdomCanvas({
       ctx.lineTo(gx, gy + 8);
       ctx.stroke();
     }
-    // robot
     const px = cx + odom.x * SCALE,
       py2 = cy - odom.y * SCALE;
     const ex = px + 14 * Math.cos(odom.yaw),
@@ -269,27 +248,19 @@ function OdomCanvas({
   return <OdomCanvasEl ref={ref} />;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // MAIN
 // ─────────────────────────────────────────────────────────────────────────────
 export default function RobotTuner() {
-  // ── ROS status ──────────────────────────────────────────────────────────
   const [rosStatus, setRosStatus] = useState<"offline" | "online">("offline");
   const rosColor = rosStatus === "online" ? C.success : C.danger;
   const rosLabel = rosStatus === "online" ? "● ROS ONLINE" : "● ROS OFFLINE";
-
-  // ── Odometry ────────────────────────────────────────────────────────────
   const [odom, setOdom] = useState<OdomState>({ x: 0, y: 0, yaw: 0 });
   const [vel, setVel] = useState({ lx: 0, ly: 0, az: 0 });
   const [trail, setTrail] = useState<{ x: number; y: number }[]>([]);
   const [goal, setGoal] = useState<{ x: number; y: number } | null>(null);
-
-  // ── Goal inputs ─────────────────────────────────────────────────────────
   const [gX, setGX] = useState("0.0");
   const [gY, setGY] = useState("0.0");
   const [gTheta, setGTheta] = useState("0.0");
-
-  // ── Log ──────────────────────────────────────────────────────────────────
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const logRef = useRef<HTMLDivElement>(null);
 
@@ -302,7 +273,6 @@ export default function RobotTuner() {
     }, 30);
   }, []);
 
-  // ── Telemetry poll ────────────────────────────────────────────────────────
   useEffect(() => {
     let alive = true;
     const poll = async () => {
@@ -335,7 +305,6 @@ export default function RobotTuner() {
     };
   }, []);
 
-  // ── POST helpers ──────────────────────────────────────────────────────────
   const post = useCallback(
     async (
       path: string,
@@ -426,9 +395,8 @@ export default function RobotTuner() {
     setGTheta(String(Math.round(theta * 1e5) / 1e5));
   };
 
-  const yawDeg = ((odom.yaw * 180) / Math.PI + 360) % 360;
-
-  // ─────────────────────────────────────────────────────────────────────────
+  const yawDeg = ((odom.yaw * 180) / Math.PI + 360) % 360; 
+  
   return (
     <Root>
       <StatusContainer>
