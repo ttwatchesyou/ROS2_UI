@@ -3,15 +3,16 @@
 import Head from "next/dist/shared/lib/head";
 import React, { useState, useEffect } from "react";
 import styled, { keyframes } from "styled-components";
+import RestartAllButton from "../../components/RestartAllButton";
 
-const API_BASE_URL = "http://100.127.237.31:8001/api";
+// 🎯 เปลี่ยนมาดึงค่าจาก Environment Variable (.env.local) แทนการ Hardcode IP
+const API_BASE_URL = `${process.env.NEXT_PUBLIC_ROBOT_API}/api`;
 
 interface ServiceData {
   name: string;
   status: string;
 }
 
-// ─── loading spinner state per service ───────────────────────────────────────
 type LoadingAction = "start" | "stop" | "restart" | null;
 
 const ServiceCard = ({
@@ -60,13 +61,12 @@ const ServiceCard = ({
           {loading === "stop" ? <Spin /> : "⏹ STOP"}
         </ActionBtn>
 
-        <RestartBtn
+        <RestartCardBtn
           disabled={loading !== null}
           onClick={() => handle("restart", () => onRestart(name))}
         >
           {loading === "restart" ? <Spin $dark /> : "↺ RESTART"}
-        </RestartBtn>
-
+        </RestartCardBtn>
         <LogBtn onClick={() => onViewLogs(name)}>📋 LOGS</LogBtn>
       </ButtonGroup>
     </Card>
@@ -104,7 +104,6 @@ export default function ServiceDashboard() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ service: name }),
     });
-    // รอ 1.5 วิให้ service restart เสร็จก่อน fetch ใหม่
     await new Promise((r) => setTimeout(r, 1500));
     await fetchServices();
   };
@@ -135,14 +134,7 @@ export default function ServiceDashboard() {
     fetchServices();
   };
 
-  const handleRemoveService = async (name: string) => {
-    await fetch(`${API_BASE_URL}/remove_service`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ service: name }),
-    });
-    fetchServices();
-  };
+  // 💡 ลบฟังก์ชัน handleRestartAll เก่าออกแล้ว เพราะตรรกะทั้งหมดถูกย้ายไปอยู่ใน Component ปุ่มแยกเรียบร้อย
 
   useEffect(() => {
     setIsClient(true);
@@ -165,7 +157,7 @@ export default function ServiceDashboard() {
         <MainBox>
           <Header>
             <Title>SUDSAKHON SERVICE</Title>
-            <Subtitle>Backend API connected on Port 8001</Subtitle>
+            <Subtitle>Backend API connected via Config Port</Subtitle>
           </Header>
 
           <ControlRow>
@@ -177,6 +169,10 @@ export default function ServiceDashboard() {
                 onKeyDown={(e) => e.key === "Enter" && handleAddService()}
               />
               <AddButton onClick={handleAddService}>Add Service</AddButton>
+              
+              {/* 🎯 ส่ง Props เข้าตัว Component ปุ่มแยก: รายชื่อเซอร์วิส และ ฟังก์ชัน callback สำหรับอัปเดตสถานะไฟหน้าจอ */}
+              <RestartAllButton services={services} onSuccess={fetchServices} />
+              
             </InputGroup>
           </ControlRow>
 
@@ -212,6 +208,7 @@ export default function ServiceDashboard() {
   );
 }
 
+// ─── STYLED COMPONENTS ───────────────────────────────────────────────────────
 const spin = keyframes`from{transform:rotate(0deg)}to{transform:rotate(360deg)}`;
 
 const Spin = styled.span<{ $dark?: boolean }>`
@@ -264,7 +261,6 @@ const Title = styled.h1`
   font-size: 1.8rem;
   font-weight: 800;
   color: #ffdc7c;
-  text-align: center;
 
   @media (min-width: 768px) {
     font-size: 2.8rem;
@@ -281,6 +277,7 @@ const Subtitle = styled.p`
 const ControlRow = styled.div`
   display: flex;
   justify-content: center;
+  width: 100%;
 `;
 
 const InputGroup = styled.div`
@@ -289,10 +286,11 @@ const InputGroup = styled.div`
   gap: 10px;
   width: 100%;
 
-  @media (min-width: 600px) {
+  @media (min-width: 768px) {
     flex-direction: row;
-    max-width: 600px;
+    max-width: 800px;
     margin: 0 auto;
+    align-items: center;
   }
 `;
 
@@ -305,8 +303,13 @@ const StyledInput = styled.input`
   border-radius: 12px;
   font-size: 16px;
   outline: none;
+  
   &:focus {
     border-color: #ffdc7c;
+  }
+
+  @media (min-width: 768px) {
+    flex: 1;
   }
 `;
 
@@ -320,11 +323,12 @@ const AddButton = styled.button`
   border-radius: 12px;
   cursor: pointer;
   transition: background 0.15s;
+  
   &:hover {
     background: #ffe6a5;
   }
 
-  @media (min-width: 600px) {
+  @media (min-width: 768px) {
     width: auto;
     white-space: nowrap;
   }
@@ -375,16 +379,22 @@ const StatusBadge = styled.span<{ $active: boolean }>`
 `;
 
 const ButtonGroup = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  width: 100%;
+
+  @media (min-width: 480px) {
+    grid-template-columns: repeat(4, 1fr);
+  }
 `;
 
 const ActionBtn = styled.button<{ $color: string }>`
-  padding: 12px;
+  width: 100%;
+  padding: 12px 6px;
   background: ${(p) => (p.$color === "#4ade80" ? "#16a34a" : "#dc2626")};
   color: white;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 800;
   border: none;
   border-radius: 8px;
@@ -410,11 +420,12 @@ const ActionBtn = styled.button<{ $color: string }>`
   }
 `;
 
-const RestartBtn = styled.button`
-  padding: 12px;
+const RestartCardBtn = styled.button`
+  width: 100%;
+  padding: 12px 6px;
   background: #d97706;
   color: white;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 800;
   border: none;
   border-radius: 8px;
@@ -422,7 +433,7 @@ const RestartBtn = styled.button`
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 4px;
   transition: all 0.15s ease;
 
   &:hover:not(:disabled) {
@@ -437,10 +448,11 @@ const RestartBtn = styled.button`
 `;
 
 const LogBtn = styled.button`
-  padding: 12px;
+  width: 100%;
+  padding: 12px 6px;
   background: rgba(0, 0, 0, 0.4);
   color: #94a3b8;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 600;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 8px;

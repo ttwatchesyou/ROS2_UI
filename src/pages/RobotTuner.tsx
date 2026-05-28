@@ -41,7 +41,6 @@ async function apiPost(
   }
 }
 
-
 function SliderRow({
   label,
   value,
@@ -395,8 +394,8 @@ export default function RobotTuner() {
     setGTheta(String(Math.round(theta * 1e5) / 1e5));
   };
 
-  const yawDeg = ((odom.yaw * 180) / Math.PI + 360) % 360; 
-  
+  const yawDeg = ((odom.yaw * 180) / Math.PI + 360) % 360;
+
   return (
     <Root>
       <StatusContainer>

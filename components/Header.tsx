@@ -1,25 +1,50 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import styled from "styled-components";
 import { Layout } from "antd";
 import { Divide as HamburgerDivide } from "hamburger-react";
 import { useRouter } from "next/router";
+import RestartAllButton from "./RestartAllButton";
 
 const { Header } = Layout;
+const API_BASE_URL = `${process.env.NEXT_PUBLIC_ROBOT_API}/api`;
 
 const HeaderComponent: React.FC = () => {
-  const [isMenuOpen, setIsMenuOpen] = useState<boolean>(false);
 
-  const scrollToSection = (id: string) => {
-    const element = document.getElementById(id);
-    if (element) {
-      element.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
+  interface ServiceData {
+  name: string;
+  status: string;
+}
+  const [isMenuOpen, setIsMenuOpen] = useState<boolean>(false);
+  const [services, setServices] = useState<ServiceData[]>([]);
+  // const scrollToSection = (id: string) => {
+  //   const element = document.getElementById(id);
+  //   if (element) {
+  //     element.scrollIntoView({
+  //       behavior: "smooth",
+  //       block: "start",
+  //     });
+  //   }
+  // };
+   const [isClient, setIsClient] = useState(false);
+  const router = useRouter();
+  const fetchServices = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/services`);
+      const data = await res.json();
+      setServices(Array.isArray(data) ? data : data.services || []);
+    } catch (e) {
+      console.error("Fetch Error:", e);
     }
   };
 
-  const router = useRouter();
+  useEffect(() => {
+      setIsClient(true);
+      fetchServices();
+      const id = setInterval(fetchServices, 3000);
+      return () => clearInterval(id);
+    }, []);
+  
+    if (!isClient) return null;
 
   return (
     <StyledHeader>
@@ -32,8 +57,10 @@ const HeaderComponent: React.FC = () => {
         {/* <NameTag>
          Department of Mechatronics and Robotics, Rayong Technical College
         </NameTag> */}
+           {/* 🎯 ส่ง Props เข้าตัว Component ปุ่มแยก: รายชื่อเซอร์วิส และ ฟังก์ชัน callback สำหรับอัปเดตสถานะไฟหน้าจอ */}
+                      <RestartAllButton services={services} onSuccess={fetchServices} />
         <DesktopMenuSection>
-          <StyledButton onClick={() => router.push("/Service")}>
+          {/* <StyledButton onClick={() => router.push("/Service")}>
             Service
           </StyledButton>
           <StyledButton onClick={() => router.push("/RobotTuner")}>
@@ -45,7 +72,10 @@ const HeaderComponent: React.FC = () => {
           <StyledButton onClick={() => router.push("/Control")}>
             Control
           </StyledButton>
-          {/* <StyledButton onClick={() => router.push("/Mission")}>
+          <StyledButton onClick={() => router.push("/step")}>
+            Step run
+          </StyledButton>
+          <StyledButton onClick={() => router.push("/Mission")}>
             Mission
           </StyledButton> */}
         </DesktopMenuSection>
@@ -69,9 +99,12 @@ const HeaderComponent: React.FC = () => {
               <StyledButton onClick={() => router.push("/Control")}>
                 Control
               </StyledButton>
-              {/* <StyledButton onClick={() => router.push("/Mission")}>
+              <StyledButton onClick={() => router.push("/step")}>
+                Step run
+              </StyledButton>
+              <StyledButton onClick={() => router.push("/Mission")}>
                 Mission
-              </StyledButton> */}
+              </StyledButton>
             </MobileMenu>
             <Overlay onClick={() => setIsMenuOpen(false)} />
           </>
@@ -210,10 +243,10 @@ const DesktopMenuSection = styled.div`
 `;
 
 const MobileMenuIcon = styled.div`
-  display: none;
+ 
   font-size: 24px;
   cursor: pointer;
-  color: #2f638a;
+  color: #ffdc7c;
 
   @media (max-width: 1024px) {
     display: block;
@@ -230,7 +263,7 @@ const MobileMenu = styled.div<MobileMenuProps>`
   top: 0;
   right: 0;
   width: 100%;
-  height: 50vh;
+  height: 60vh;
   background: white;
   box-shadow: -4px 0 8px rgba(0, 0, 0, 0.1);
   display: flex;

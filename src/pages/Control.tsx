@@ -2,9 +2,7 @@
 
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import styled, { keyframes, css } from "styled-components";
-import { Row, Col, Switch, Space } from "antd";
 import {
-  PlayCircleOutlined,
   StopFilled,
   ControlOutlined,
   RocketOutlined,
@@ -12,8 +10,12 @@ import {
   ArrowDownOutlined,
   DoubleRightOutlined,
   DoubleLeftOutlined,
+  PlayCircleOutlined,
+  PauseCircleOutlined,
+  SettingOutlined,
+  EditOutlined,
+  KeyOutlined,
 } from "@ant-design/icons";
-import { Joystick } from "react-joystick-component";
 import Head from "next/dist/shared/lib/head";
 
 const API_BASE =
@@ -24,17 +26,15 @@ async function post(
   body: Record<string, unknown> = {}
 ): Promise<boolean> {
   const url = `${API_BASE}${path}`;
-  console.log(`[POST] ${url}`, body);
   try {
     const r = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    console.log(`[POST] ${url} → ${r.status}`);
     return r.ok;
-  } catch (err) {
-    console.error(`[POST] ${url} failed:`, err);
+  } catch (error) {
+    console.error(`🔴 API Error [${path}]:`, error);
     return false;
   }
 }
@@ -42,16 +42,44 @@ async function post(
 const MAX_VEL = 0.5;
 const VEL_INTERVAL_MS = 80;
 
-const pulse = keyframes`
-  0%   { box-shadow: 0 0 0 0 rgba(255,77,79,0.7); }
-  70%  { box-shadow: 0 0 0 15px rgba(255,77,79,0); }
-  100% { box-shadow: 0 0 0 0 rgba(255,77,79,0); }
+const SERVOS = [
+  { label: "ขวดซ้าย", channel: 13 },
+  { label: "ดันกล่อง", channel: 14 },
+  { label: "ขวดขวา", channel: 15 },
+];
+
+// ─── Animations ──────────────────────────────────────────────────────────────
+const glow = keyframes`
+  0%, 100% { text-shadow: 0 0 6px rgba(255,220,124,0.4); }
+  50%       { text-shadow: 0 0 20px rgba(255,220,124,0.9), 0 0 40px rgba(255,220,124,0.3); }
+`;
+const fadeUp = keyframes`
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+`;
+const btnPress = keyframes`
+  0%   { transform: scale(1); }
+  45%  { transform: scale(0.93); }
+  100% { transform: scale(1); }
 `;
 
 export default function ControlCenter() {
-  const [isAuto, setIsAuto] = useState(false);
   const [selectedColor, setSelectedColor] = useState<0 | 1 | null>(null);
   const [selectedGame, setSelectedGame] = useState<number | null>(null);
+  const [activeBtn, setActiveBtn] = useState<string | null>(null);
+
+  const [servoAngles, setServoAngles] = useState<Record<number, number>>(() =>
+    Object.fromEntries(SERVOS.map((s) => [s.channel, 90]))
+  );
+
+  // 🔥 [NEW] เปลี่ยนสถานะ Prefix ให้มี 2 ช่องคีย์อิสระต่อ 1 เซอร์โว (Key 1 สำหรับ ID/Channel, Key 2 สำหรับ Angle)
+  const [servoPrefixes, setServoPrefixes] = useState<
+    Record<number, { keyId: string; keyAngle: string }>
+  >(() =>
+    Object.fromEntries(
+      SERVOS.map((s) => [s.channel, { keyId: "servo_id", keyAngle: "angle" }])
+    )
+  );
 
   const velRef = useRef({ vx: 0, vy: 0 });
   const velIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -75,37 +103,57 @@ export default function ControlCenter() {
 
   useEffect(() => () => stopVelLoop(), [stopVelLoop]);
 
-  const onJoystickMove = useCallback(
-    (e: { x: number | null; y: number | null }) => {
-      velRef.current = {
-        vx: (e.x ?? 0) * MAX_VEL,
-        vy: -(e.y ?? 0) * MAX_VEL,
-      };
-      startVelLoop();
-    },
-    [startVelLoop]
-  );
-
-  const onSelectColor = (color: 0 | 1) => {
-    setSelectedColor(color);
-    post("/api/cmd/program_color", { color });
+  const flash = (key: string) => {
+    setActiveBtn(key);
+    setTimeout(() => setActiveBtn(null), 180);
   };
 
-  const onSelectGame = (game: number) => {
-    setSelectedGame(game);
-    post("/api/cmd/program_game", { game });
+  const onBottleL = (state: "up" | "down" | "stop") => {
+    flash(`bl-${state}`);
+    post("/api/cmd/bottle_l", { state });
   };
-  const onStart = () => post("/api/cmd/program_command", { command: 1 });
-  const onReset = () => {
-    setSelectedColor(null);
-    setSelectedGame(null);
-    post("/api/cmd/program_command", { command: 2 });
+  const onBottleR = (state: "up" | "down" | "stop") => {
+    flash(`br-${state}`);
+    post("/api/cmd/bottle_r", { state });
   };
-  const onEStop = () => post("/api/cmd/estop");
-  const onLift = (lift: 1 | 2, state: "up" | "down") =>
-    post("/api/cmd/lift", { lift, state });
-  const onSlider = (action: "in" | "out") =>
+  const onBox = (state: "up" | "down" | "stop") => {
+    flash(`box-${state}`);
+    post("/api/cmd/box", { state });
+  };
+  const onSlider = (action: "in" | "out" | "stop") => {
+    flash(`sl-${action}`);
     post("/api/cmd/slider", { action });
+  };
+
+  const onServoChange = (ch: number, angle: number) =>
+    setServoAngles((prev) => ({ ...prev, [ch]: angle }));
+
+  // 🔥 [NEW] ฟังก์ชันสำหรับอัปเดต Prefix ทั้ง 2 คีย์แบบแยกแยะกัน
+  const onPrefixChange = (
+    ch: number,
+    field: "keyId" | "keyAngle",
+    value: string
+  ) => {
+    setServoPrefixes((prev) => ({
+      ...prev,
+      [ch]: { ...prev[ch], [field]: value },
+    }));
+  };
+
+  const onServoSend = (ch: number, targetAngle?: number) => {
+    flash(`sv-${ch}`);
+    const finalAngle = targetAngle ?? servoAngles[ch];
+    const { keyId, keyAngle } = servoPrefixes[ch];
+
+    // ประกอบโครงสร้าง JSON Payload จาก Prefix ตัวแปรทั้ง 2 ช่องที่ตั้งค่าไว้
+    const payload: Record<string, unknown> = {
+      [keyId || "servo_id"]: ch,
+      channel: ch, // ยังคงส่งสำรองไว้
+      [keyAngle || "angle"]: finalAngle,
+    };
+
+    post("/api/cmd/arduino_servo", payload);
+  };
 
   return (
     <>
@@ -113,431 +161,589 @@ export default function ControlCenter() {
         <title>Mechatronics and Robotics</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link href="/logo/MechaLogo.png" rel="icon" />
-        <meta property="og:title" content="Mechatronics and Robotics" />
       </Head>
-      <DashboardContainer>
-        <ContentWrapper>
-          {/* MODE HEADER — switch เปลี่ยน mode เท่านั้น */}
-          <ModeHeader>
-            <Space>
-              <StatusIndicator active={!isAuto} color="#ffdc7c">
-                MANUAL
-              </StatusIndicator>
-              <Switch checked={isAuto} onChange={setIsAuto} />
-              <StatusIndicator active={isAuto} color="#4ade80">
-                AUTO
-              </StatusIndicator>
-            </Space>
-          </ModeHeader>
 
-          <Row gutter={[16, 16]}>
-            {/* ── MISSION CARD ─────────────────────────────────────────────── */}
-            <Col xs={24} lg={8}>
-              <ControlCard $disabled={!isAuto}>
-                <CardTitle>
-                  <RocketOutlined /> MISSION
-                </CardTitle>
+      <Shell>
+        {/* HEADER */}
+        <Header>
+          <HeaderLeft>
+            <Pip />
+            <HeaderTitle>SUDSAKHON CONTROL</HeaderTitle>
+          </HeaderLeft>
+          <StatusChip>MANUAL</StatusChip>
+        </Header>
 
-                {/* STEP 1: เลือกสี → ส่ง /Program/Color ทันที */}
-                <SectionLabel>TEAM COLOR</SectionLabel>
-                <ButtonGroup>
-                  <ToggleBtn
-                    $active={selectedColor === 0}
-                    $variant="red"
-                    disabled={!isAuto}
-                    onClick={() => onSelectColor(0)}
-                  >
-                    <PlayCircleOutlined /> RED
-                  </ToggleBtn>
-                  <ToggleBtn
-                    $active={selectedColor === 1}
-                    $variant="blue"
-                    disabled={!isAuto}
-                    onClick={() => onSelectColor(1)}
-                  >
-                    <PlayCircleOutlined /> BLUE
-                  </ToggleBtn>
-                </ButtonGroup>
+        {/* 🔥 [LAYOUT UPDATE] จัดกลุ่มแบ่งขวา-ซ้ายด้วย MainGrid แบบแบ่งสองฝั่งเท่ากัน */}
+        <MainGrid>
+          {/* ฝั่งซ้าย: MANUAL ACTUATORS */}
+          <LeftColumn>
+            <TeleopCard>
+              <CardLabel>
+                <ControlOutlined /> MANUAL ACTUATORS
+              </CardLabel>
+              <Divider />
+              <TeleopLayout>
+                <ActuatorPanel>
+                  <ActGroup>
+                    <ActLabel>BOTTLE L</ActLabel>
+                    <ActBtnRow>
+                      <ActBtn
+                        $flash={activeBtn === "bl-up"}
+                        onClick={() => onBottleL("up")}
+                      >
+                        <ArrowUpOutlined />
+                      </ActBtn>
+                      <ActBtn
+                        $stop
+                        $flash={activeBtn === "bl-stop"}
+                        onClick={() => onBottleL("stop")}
+                      >
+                        <PauseCircleOutlined />
+                      </ActBtn>
+                      <ActBtn
+                        $flash={activeBtn === "bl-down"}
+                        onClick={() => onBottleL("down")}
+                      >
+                        <ArrowDownOutlined />
+                      </ActBtn>
+                    </ActBtnRow>
+                  </ActGroup>
 
-                {/* STEP 2: เลือก game → ส่ง /Program/Game ทันที */}
-                <SectionLabel style={{ marginTop: 16 }}>GAME MODE</SectionLabel>
-                <GameGrid>
-                  {Array.from({ length: 10 }, (_, i) => i + 1).map((g) => (
-                    <GameBtn
-                      key={g}
-                      $active={selectedGame === g}
-                      disabled={!isAuto}
-                      onClick={() => onSelectGame(g)}
-                    >
-                      G{g}
-                    </GameBtn>
-                  ))}
-                </GameGrid>
+                  <ActGroup>
+                    <ActLabel>BOTTLE R</ActLabel>
+                    <ActBtnRow>
+                      <ActBtn
+                        $flash={activeBtn === "br-up"}
+                        onClick={() => onBottleR("up")}
+                      >
+                        <ArrowUpOutlined />
+                      </ActBtn>
+                      <ActBtn
+                        $stop
+                        $flash={activeBtn === "br-stop"}
+                        onClick={() => onBottleR("stop")}
+                      >
+                        <PauseCircleOutlined />
+                      </ActBtn>
+                      <ActBtn
+                        $flash={activeBtn === "br-down"}
+                        onClick={() => onBottleR("down")}
+                      >
+                        <ArrowDownOutlined />
+                      </ActBtn>
+                    </ActBtnRow>
+                  </ActGroup>
 
-                {/* START + RESET */}
-                <ActionRowGrid style={{ marginTop: 16 }}>
-                  <ActionBtn disabled={!isAuto} onClick={onStart}>
-                    START
-                  </ActionBtn>
-                  {/* <ActionBtn $warning disabled={!isAuto} onClick={onReset}>
-      RESET
-    </ActionBtn> */}
-                </ActionRowGrid>
+                  <ActGroup>
+                    <ActLabel>BOX</ActLabel>
+                    <ActBtnRow>
+                      <ActBtn
+                        $flash={activeBtn === "box-up"}
+                        onClick={() => onBox("up")}
+                      >
+                        <ArrowUpOutlined />
+                      </ActBtn>
+                      <ActBtn
+                        $stop
+                        $flash={activeBtn === "box-stop"}
+                        onClick={() => onBox("stop")}
+                      >
+                        <PauseCircleOutlined />
+                      </ActBtn>
+                      <ActBtn
+                        $flash={activeBtn === "box-down"}
+                        onClick={() => onBox("down")}
+                      >
+                        <ArrowDownOutlined />
+                      </ActBtn>
+                    </ActBtnRow>
+                  </ActGroup>
 
-                <EStopSection>
-                  <EStopButton
-                    disabled={!isAuto}
-                    onClick={isAuto ? onEStop : undefined}
-                  >
-                    <StopFilled style={{ fontSize: "1.5rem" }} />
-                    E-STOP
-                  </EStopButton>
-                </EStopSection>
+                  <ActGroup $wide>
+                    <ActLabel>SLIDER</ActLabel>
+                    <ActBtnRow>
+                      <ActBtn
+                        $wide
+                        $flash={activeBtn === "sl-in"}
+                        onClick={() => onSlider("in")}
+                      >
+                        <DoubleLeftOutlined /> RETRACT
+                      </ActBtn>
+                      <ActBtn
+                        $stop
+                        $flash={activeBtn === "sl-stop"}
+                        onClick={() => onSlider("stop")}
+                      >
+                        <PauseCircleOutlined />
+                      </ActBtn>
+                      <ActBtn
+                        $wide
+                        $flash={activeBtn === "sl-out"}
+                        onClick={() => onSlider("out")}
+                      >
+                        <DoubleRightOutlined /> EXTEND
+                      </ActBtn>
+                    </ActBtnRow>
+                  </ActGroup>
+                </ActuatorPanel>
+              </TeleopLayout>
+            </TeleopCard>
+          </LeftColumn>
 
-                {!isAuto && <DisabledOverlay>SWITCH TO AUTO</DisabledOverlay>}
-              </ControlCard>
-            </Col>
+          {/* ฝั่งขวา: SERVO MOTORS */}
+          <RightColumn>
+            <ServoCard>
+              <CardLabel>
+                <SettingOutlined /> SERVO MOTORS
+              </CardLabel>
+              <Divider />
+              <ServoGrid>
+                {SERVOS.map(({ label, channel }) => {
+                  const angle = servoAngles[channel];
+                  const { keyId, keyAngle } = servoPrefixes[channel];
+                  return (
+                    <ServoRow key={channel}>
+                      {/* ส่วนรายละเอียด และช่องกรอก Prefix สองช่องขนาดใหญ่ */}
+                      <ServoMetaContainer>
+                        <ServoNameBlock>
+                          <ServoName>{label}</ServoName>
+                          <ServoAngle>{angle}°</ServoAngle>
+                        </ServoNameBlock>
 
-            {/* ── TELEOP CARD ──────────────────────────────────────────────── */}
-            <Col xs={24} lg={16}>
-              <ControlCard $disabled={isAuto}>
-                <CardTitle>
-                  <ControlOutlined /> TELEOP
-                </CardTitle>
+                        {/* 🔥 [NEW UPDATE] ช่องระบุ Prefix 2 คีย์ ขนาดใหญ่เห็นชัดเจนขึ้น */}
+                        <PrefixTwinGrid>
+                          {/* <PrefixWrapper>
+                            <KeyOutlined style={{ fontSize: '11px', color: 'rgba(255,220,124,0.5)' }} />
+                            <PrefixInput 
+                              type="text" 
+                              value={keyId}
+                              placeholder="ID Key"
+                              onChange={(e) => onPrefixChange(channel, "keyId", e.target.value)}
+                            />
+                          </PrefixWrapper> */}
 
-                <Row gutter={[16, 16]}>
-                  {/* JOYSTICK */}
-                  <Col xs={24} md={10}>
-                    <JoystickContainer>
-                      <Joystick
-                        size={120}
-                        baseColor="#080c1a"
-                        stickColor="#ffdc7c"
-                        move={onJoystickMove}
-                        stop={stopVelLoop}
-                      />
-                    </JoystickContainer>
-                  </Col>
+                          <PrefixWrapper>
+                            <EditOutlined
+                              style={{
+                                fontSize: "11px",
+                                color: "rgba(255,220,124,0.5)",
+                              }}
+                            />
+                            <PrefixInput
+                              type="text"
+                              value={keyAngle}
+                              placeholder="Angle Key"
+                              onChange={(e) =>
+                                onPrefixChange(
+                                  channel,
+                                  "keyAngle",
+                                  e.target.value
+                                )
+                              }
+                            />
+                          </PrefixWrapper>
+                        </PrefixTwinGrid>
+                      </ServoMetaContainer>
 
-                  {/* ACTUATORS */}
-                  <Col xs={24} md={14}>
-                    <ActuatorGrid>
-                      {/* LIFT 1 */}
-                      <ControlGroup>
-                        <span className="label">LIFT 1</span>
-                        <ButtonStack>
-                          <MechBtn
-                            disabled={isAuto}
-                            onClick={() => onLift(1, "up")}
-                          >
-                            <ArrowUpOutlined /> UP
-                          </MechBtn>
-                          <MechBtn
-                            disabled={isAuto}
-                            onClick={() => onLift(1, "down")}
-                          >
-                            <ArrowDownOutlined /> DOWN
-                          </MechBtn>
-                        </ButtonStack>
-                      </ControlGroup>
-
-                      {/* LIFT 2 */}
-                      <ControlGroup>
-                        <span className="label">LIFT 2</span>
-                        <ButtonStack>
-                          <MechBtn
-                            disabled={isAuto}
-                            onClick={() => onLift(2, "up")}
-                          >
-                            <ArrowUpOutlined /> UP
-                          </MechBtn>
-                          <MechBtn
-                            disabled={isAuto}
-                            onClick={() => onLift(2, "down")}
-                          >
-                            <ArrowDownOutlined /> DOWN
-                          </MechBtn>
-                        </ButtonStack>
-                      </ControlGroup>
-
-                      {/* SLIDER */}
-                      <ControlGroup className="full">
-                        <span className="label">SLIDER</span>
-                        <ButtonRow>
-                          <MechBtn
-                            disabled={isAuto}
-                            onClick={() => onSlider("in")}
-                          >
-                            <DoubleLeftOutlined /> RETRACT
-                          </MechBtn>
-                          <MechBtn
-                            disabled={isAuto}
-                            onClick={() => onSlider("out")}
-                          >
-                            <DoubleRightOutlined /> EXTEND
-                          </MechBtn>
-                        </ButtonRow>
-                      </ControlGroup>
-                    </ActuatorGrid>
-                  </Col>
-                </Row>
-
-                {isAuto && <DisabledOverlay>SWITCH TO MANUAL</DisabledOverlay>}
-              </ControlCard>
-            </Col>
-          </Row>
-        </ContentWrapper>
-      </DashboardContainer>
+                      {/* ส่วนของตัวเลื่อนปรับมุม (Slider) */}
+                      <ServoControlBlock>
+                        <SliderWrap>
+                          <ServoTrack>
+                            <ServoFill
+                              style={{ width: `${(angle / 180) * 100}%` }}
+                            />
+                          </ServoTrack>
+                          <ServoSlider
+                            type="range"
+                            min={0}
+                            max={180}
+                            value={angle}
+                            onChange={(e) =>
+                              onServoChange(channel, Number(e.target.value))
+                            }
+                            onMouseUp={() => onServoSend(channel)}
+                            onTouchEnd={() => onServoSend(channel)}
+                          />
+                        </SliderWrap>
+                        <ServoSendBtn
+                          $flash={activeBtn === `sv-${channel}`}
+                          onClick={() => onServoSend(channel)}
+                        >
+                          SET
+                        </ServoSendBtn>
+                      </ServoControlBlock>
+                    </ServoRow>
+                  );
+                })}
+              </ServoGrid>
+            </ServoCard>
+          </RightColumn>
+        </MainGrid>
+      </Shell>
     </>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// STYLED COMPONENTS  (เหมือนเดิมทุกอย่าง)
-// ─────────────────────────────────────────────────────────────────────────────
-const DashboardContainer = styled.div`
-  margin-top: 80px;
+// ═══════════════════════════════════════════════════════════════════
+// STYLED COMPONENTS
+// ═══════════════════════════════════════════════════════════════════
+const Shell = styled.div`
   min-height: 100vh;
+  margin-top: 80px;
   background: #fffbde;
-  padding: 15px;
+  padding: 20px 16px 40px;
+  background-image: linear-gradient(
+      rgba(30, 50, 113, 0.04) 1px,
+      transparent 1px
+    ),
+    linear-gradient(90deg, rgba(30, 50, 113, 0.04) 1px, transparent 1px);
+  background-size: 40px 40px;
+`;
+const Header = styled.header`
   display: flex;
-  flex-direction: column;
   align-items: center;
-  @media (min-width: 768px) {
-    padding-top: 80px;
-  }
+  justify-content: space-between;
+  background: #1e3271;
+  border-radius: 14px;
+  padding: 16px 24px;
+  margin-bottom: 20px;
+  box-shadow: 0 4px 18px rgba(30, 50, 113, 0.25);
 `;
-const ContentWrapper = styled.div`
-  width: 100%;
-  max-width: 1400px;
-`;
-const ModeHeader = styled.div`
-  justify-content: center;
+const HeaderLeft = styled.div`
   display: flex;
   align-items: center;
   gap: 12px;
-  background: #1e3271;
-  padding: 10px 30px;
-  border-radius: 50px;
-  margin-bottom: 20px;
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
 `;
-const StatusIndicator = styled.span<{ active: boolean; color: string }>`
-  color: ${(p) => (p.active ? p.color : "#666")};
-  font-weight: bold;
-  font-size: 0.8rem;
+const Pip = styled.span`
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #4ade80;
+  box-shadow: 0 0 8px #4ade80;
+  display: inline-block;
 `;
-const ControlCard = styled.div<{ $disabled: boolean }>`
-  background: #1e3271;
-  border-radius: 20px;
-  padding: 20px;
-  position: relative;
-  opacity: ${(p) => (p.$disabled ? 0.6 : 1)};
-  pointer-events: ${(p) => (p.$disabled ? "none" : "auto")};
-  height: 100%;
-`;
-const CardTitle = styled.h2`
+const HeaderTitle = styled.h1`
   color: #ffdc7c;
-  font-size: 1rem;
-  margin-bottom: 20px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  font-size: 0.95rem;
+  font-weight: 800;
+  letter-spacing: 3px;
+  margin: 0;
+  animation: ${glow} 3s ease-in-out infinite;
 `;
-const JoystickContainer = styled.div`
-  background: rgba(0, 0, 0, 0.15);
-  padding: 20px;
-  border-radius: 15px;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  margin-bottom: 15px;
-  @media (min-width: 768px) {
-    margin: 0;
-    height: 100%;
-  }
-`;
-const ActuatorGrid = styled.div`
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-`;
-const ControlGroup = styled.div`
-  background: rgba(255, 255, 255, 0.03);
-  padding: 10px;
-  border-radius: 12px;
-  &.full {
-    grid-column: span 2;
-  }
-  .label {
-    color: #ffdc7c;
-    font-size: 0.6rem;
-    display: block;
-    text-align: center;
-    margin-bottom: 8px;
-  }
-`;
-const ButtonStack = styled.div`
-  display: grid;
-  gap: 8px;
-`;
-const ButtonRow = styled.div`
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
+const StatusChip = styled.div`
+  background: rgba(255, 220, 124, 0.15);
+  border: 1px solid rgba(255, 220, 124, 0.5);
+  color: #ffdc7c;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 2px;
+  padding: 4px 12px;
+  border-radius: 20px;
 `;
 
-// ── Custom buttons (ไม่ใช้ antd Button เพื่อหลีกเลี่ยง styled(Button) quirks) ──
-const MechBtn = styled.button`
-  height: 50px;
-  background: #2c3e50;
+// 🔥 [MODIFIED] เปลี่ยนตัวครอบ Grid จากแนวตั้งเดิม ให้แยกเป็นการ์ดสองฝั่ง ซ้าย-ขวา
+const MainGrid = styled.div`
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 20px;
+  width: 100%;
+  align-items: start;
+
+  @media (min-width: 1100px) {
+    grid-template-columns: 1fr 1fr; /* แบ่งพื้นที่ 50/50 ซ้ายขวาสมมาตรพอดี */
+  }
+`;
+const LeftColumn = styled.div`
+  width: 100%;
+`;
+const RightColumn = styled.div`
+  width: 100%;
+`;
+
+const BaseCard = styled.div`
+  background: #1e3271;
+  border-radius: 18px;
+  padding: 24px;
+  box-shadow: 0 6px 24px rgba(30, 50, 113, 0.2);
+  animation: ${fadeUp} 0.35s ease both;
+  position: relative;
+  overflow: hidden;
+  height: 100%; /* บังคับให้การ์ดขยายเต็มความสูงเท่ากัน */
+  min-height: 420px;
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(
+      to bottom,
+      transparent,
+      transparent 3px,
+      rgba(0, 0, 0, 0.04) 3px,
+      rgba(0, 0, 0, 0.04) 4px
+    );
+    pointer-events: none;
+    z-index: 0;
+  }
+  > * {
+    position: relative;
+    z-index: 1;
+  }
+`;
+const TeleopCard = styled(BaseCard)``;
+const ServoCard = styled(BaseCard)``;
+
+const CardLabel = styled.h2`
   color: #ffdc7c;
-  border: 1px solid rgba(255, 220, 124, 0.3);
-  font-weight: bold;
-  border-radius: 8px;
-  width: 100%;
-  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 800;
+  letter-spacing: 2.5px;
+  margin: 0 0 16px;
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 6px;
-  font-size: 12px;
-  transition: background 0.15s;
-  &:active {
-    background: #ffdc7c;
-    color: #1e3271;
-  }
-  &:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
-`;
-const ActionBtn = styled.button<{ $danger?: boolean; $warning?: boolean }>`
-  height: 50px;
-  font-weight: bold;
-  border-radius: 10px;
-  width: 100%;
-  cursor: pointer;
-  border: none;
-  font-size: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  background: ${(p) =>
-    p.$danger ? "#ff4d4f" : p.$warning ? "#fa8c16" : "#1677ff"};
-  color: white;
-  transition: opacity 0.15s;
-  &:hover {
-    opacity: 0.85;
-  }
-  &:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
-`;
-const ButtonGroup = styled.div`
-  display: flex;
-  flex-direction: column;
   gap: 10px;
 `;
-const EStopSection = styled.div`
-  margin-top: 30px;
-  display: flex;
-  justify-content: center;
+const Divider = styled.hr`
+  border: none;
+  border-top: 1px solid rgba(255, 220, 124, 0.12);
+  margin: 0 0 20px;
 `;
-const EStopButton = styled.button<{ disabled?: boolean }>`
-  width: 90px;
-  height: 90px;
-  border-radius: 50%;
-  background: ${(p) => (p.disabled ? "#595959" : "#ff4d4f")};
-  color: white;
-  border: 4px solid ${(p) => (p.disabled ? "#333" : "#820014")};
-  font-weight: 900;
-  font-size: 0.7rem;
+const TeleopLayout = styled.div`
+  width: 100%;
+`;
+const ActuatorPanel = styled.div`
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  @media (min-width: 500px) {
+    grid-template-columns: repeat(2, 1fr);
+  }
+`;
+const ActGroup = styled.div<{ $wide?: boolean }>`
+  background: rgba(0, 0, 0, 0.14);
+  border-radius: 14px;
+  padding: 14px;
+  border: 1px solid rgba(255, 220, 124, 0.08);
   display: flex;
   flex-direction: column;
-  align-items: center;
   justify-content: center;
-  cursor: ${(p) => (p.disabled ? "not-allowed" : "pointer")};
+
   ${(p) =>
-    !p.disabled &&
+    p.$wide &&
     css`
-      animation: ${pulse} 2s infinite;
+      @media (min-width: 500px) {
+        grid-column: span 2;
+      }
     `}
 `;
-const DisabledOverlay = styled.div`
-  position: absolute;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  font-weight: bold;
-  z-index: 5;
-  border-radius: 20px;
-  backdrop-filter: blur(2px);
-  pointer-events: none;
-`;
-
-const SectionLabel = styled.div`
-  color: rgba(255, 220, 124, 0.6);
+const ActLabel = styled.div`
+  color: rgba(255, 220, 124, 0.65);
   font-size: 0.65rem;
-  letter-spacing: 1px;
-  margin-bottom: 8px;
+  letter-spacing: 1.8px;
+  font-weight: 700;
+  text-align: center;
+  margin-bottom: 12px;
 `;
-const ToggleBtn = styled.button<{ $active: boolean; $variant: "red" | "blue" }>`
-  height: 50px;
+const ActBtnRow = styled.div`
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 8px;
+`;
+const ActBtn = styled.button<{
+  $stop?: boolean;
+  $flash?: boolean;
+  $wide?: boolean;
+}>`
+  height: 46px;
   border-radius: 10px;
   cursor: pointer;
-  font-weight: bold;
-  color: white;
-  border: 2px solid ${(p) => (p.$active ? "#ffdc7c" : "transparent")};
-  box-shadow: ${(p) => (p.$active ? "0 0 12px rgba(255,220,124,0.4)" : "none")};
-  background: ${(p) =>
-    p.$variant === "red"
-      ? p.$active
-        ? "#ff4d4f"
-        : "#4a1b1b"
-      : p.$active
-      ? "#1677ff"
-      : "#1b2a4a"};
-  transition: all 0.15s;
+  font-weight: 700;
+  font-size: ${(p) => (p.$wide ? "12px" : "18px")};
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  &:disabled {
-    opacity: 0.3;
-    cursor: not-allowed;
+  transition: all 0.1s;
+  border: 1px solid rgba(255, 220, 124, 0.2);
+  background: ${(p) =>
+    p.$flash
+      ? p.$stop
+        ? "#555"
+        : "#ffdc7c"
+      : p.$stop
+      ? "rgba(255,255,255,0.04)"
+      : "#243a6e"};
+  color: ${(p) => (p.$flash ? (p.$stop ? "white" : "#1e3271") : "#ffdc7c")};
+  min-width: ${(p) => (p.$stop ? "44px" : "auto")};
+  &:hover {
+    background: ${(p) =>
+      p.$stop ? "rgba(255,255,255,0.1)" : "rgba(255,220,124,0.15)"};
+    border-color: rgba(255, 220, 124, 0.5);
+  }
+  &:active {
+    transform: scale(0.95);
   }
 `;
-const GameGrid = styled.div`
+
+const ServoGrid = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+`;
+const ServoRow = styled.div`
+  background: rgba(0, 0, 0, 0.14);
+  border-radius: 14px;
+  padding: 16px;
+  border: 1px solid rgba(255, 220, 124, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+`;
+
+const ServoMetaContainer = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+
+  @media (min-width: 480px) {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+  }
+`;
+const ServoNameBlock = styled.div`
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-width: 100px;
+`;
+const ServoName = styled.span`
+  color: #ffdc7c;
+  font-size: 0.85rem;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+`;
+const ServoAngle = styled.span`
+  color: #ffdc7c;
+  font-size: 0.85rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  background: rgba(255, 220, 124, 0.1);
+  padding: 2px 8px;
+  border-radius: 6px;
+  margin-left: 10px;
+`;
+
+const PrefixTwinGrid = styled.div`
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 6px;
-`;
-const GameBtn = styled.button<{ $active: boolean }>`
-  height: 40px;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: bold;
-  background: ${(p) => (p.$active ? "#ffdc7c" : "rgba(255,255,255,0.05)")};
-  color: ${(p) => (p.$active ? "#1e3271" : "#ffdc7c")};
-  border: 1px solid ${(p) => (p.$active ? "#ffdc7c" : "rgba(255,220,124,0.2)")};
-  transition: all 0.15s;
-  &:disabled {
-    opacity: 0.15;
-    cursor: not-allowed;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  width: 100%;
+
+  @media (min-width: 480px) {
+    width: 260px; /* จำกัดความกว้างไม่ให้บังแถวสไลเดอร์ */
   }
-  &:hover:not(:disabled) {
+`;
+const PrefixWrapper = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 220, 124, 0.25);
+  border-radius: 8px;
+  padding: 6px 10px; /* เพิ่มพื้นที่ภายในเพื่อความใหญ่ */
+  transition: border-color 0.2s;
+
+  &:focus-within {
     border-color: #ffdc7c;
   }
 `;
-const ActionRowGrid = styled.div`
+const PrefixInput = styled.input`
+  background: transparent;
+  border: none;
+  color: #ffdc7c;
+  font-size: 0.75rem;
+  font-weight: 700;
+  width: 100%;
+  outline: none;
+  letter-spacing: 0.5px;
+  &::placeholder {
+    color: rgba(255, 220, 124, 0.2);
+  }
+`;
+
+const ServoControlBlock = styled.div`
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+`;
+const SliderWrap = styled.div`
+  position: relative;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  width: 100%;
+`;
+const ServoTrack = styled.div`
+  position: absolute;
+  inset: 50% 0 auto 0;
+  transform: translateY(-50%);
+  height: 6px;
+  background: rgba(255, 255, 255, 0.07);
+  border-radius: 4px;
+  overflow: hidden;
+  pointer-events: none;
+`;
+const ServoFill = styled.div`
+  height: 100%;
+  background: linear-gradient(90deg, #1677ff, #ffdc7c);
+  border-radius: 4px;
+  transition: width 0.05s linear;
+`;
+const ServoSlider = styled.input`
+  position: relative;
+  width: 100%;
+  height: 24px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+  z-index: 1;
+  margin: 0;
+  &::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 20px; /* ขยายขนาดหัวหมุนให้จับง่ายขึ้น */
+    height: 20px;
+    border-radius: 50%;
+    background: #ffdc7c;
+    border: 2px solid #1e3271;
+    box-shadow: 0 0 6px rgba(255, 220, 124, 0.5);
+    cursor: grab;
+    transition: transform 0.1s;
+  }
+  &::-webkit-slider-thumb:active {
+    transform: scale(1.25);
+    cursor: grabbing;
+  }
+`;
+const ServoSendBtn = styled.button<{ $flash: boolean }>`
+  height: 38px;
+  width: 65px;
+  border-radius: 10px;
+  font-weight: 800;
+  font-size: 0.75rem;
+  letter-spacing: 1.5px;
+  cursor: pointer;
+  border: 1px solid rgba(255, 220, 124, 0.35);
+  background: ${(p) => (p.$flash ? "#ffdc7c" : "rgba(255,220,124,0.08)")};
+  color: ${(p) => (p.$flash ? "#1e3271" : "#ffdc7c")};
+  transition: all 0.1s;
+  &:hover {
+    background: rgba(255, 220, 124, 0.18);
+    border-color: #ffdc7c;
+  }
+  &:active {
+    transform: scale(0.93);
+  }
 `;

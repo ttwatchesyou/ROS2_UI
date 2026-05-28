@@ -9,34 +9,25 @@ import {
   RocketOutlined,
 } from "@ant-design/icons";
 
-export const API_BASE = process.env.NEXT_PUBLIC_ROBOT_API ;
+export const API_BASE = process.env.NEXT_PUBLIC_ROBOT_API;
 export const STREAM_URL = process.env.NEXT_PUBLIC_STREAM_URL;
 const POLL_MS = 200;
 const DETECT_POLL_MS = 300;
 const MISSION_POLL_MS = 300;
 
-const rectZonesMode1 = [
-  { name: "table A (R)", x: -2.90, y: -3.70, w: -1.20, h: -0.6 }, 
-  { name: "table B (R)", x: -1.80, y: -3.70, w: 1.20, h: -0.6 }, 
-  { name: "table C (R)", x: -2.90, y: -1.50, w: -1.20, h: -0.6 }, 
-  { name: "table D (R)", x: -1.80, y: -1.50, w: 1.20, h: -0.6 }, 
-  { name: "table E (R)", x: -6.40, y: -1.50, w: 1.20, h: -0.6 }, 
-  { name: "table F (R)", x: -6.40, y: -3.70, w: 1.20, h: -0.6 }, 
-  { name: "start (R)",   x: 0.40,  y: 0.40,  w: -0.80, h: -0.80 }, 
-  { name: "stage (R)",   x: 0.40,  y: 0.40,  w: -7.80, h: -9.0 }, 
-  { name: "mainstage (R)",   x: -1.10,  y: -6.60,  w: -4.80, h: -2.0 }, 
-];
-
-const rectZonesMode2 = [
-  { name: "table A (B)", x: 1.80,  y: -3.70, w: -1.20, h: -0.6 }, 
-  { name: "table B (B)", x: 2.90,  y: -3.70, w: 1.20, h: -0.6 }, 
-  { name: "table C (B)", x: 1.80,  y: -1.50, w: -1.20, h: -0.6 }, 
-  { name: "table D (B)", x: 2.90,  y: -1.50, w: 1.20, h: -0.6 }, 
-  { name: "table E (B)", x: 5.20,  y: -1.50, w: 1.20, h: -0.6 }, 
-  { name: "table F (B)", x: 5.20, y: -3.70, w: 1.20, h: -0.6 },
-  { name: "start (B)",   x: 0.40,  y: 0.40,  w: -0.80, h: -0.80 }, 
-  { name: "stage (B)",   x: -0.40,  y: 0.40,  w: 7.80, h: -9.0 }, 
-  { name: "mainstage (B)",   x: 1.10,  y: -6.60,  w: 4.80, h: -2.0 },
+const rectZones = [
+  { name: "table A", x: -2.9, y: -3.7, w: -1.2, h: -0.6, color: "#FFFF00" },
+  { name: "table B", x: -1.8, y: -3.7, w: 1.2, h: -0.6, color: "#f72525" },
+  { name: "table C", x: -2.9, y: -1.5, w: -1.2, h: -0.6, color: "#FFFF00" },
+  { name: "table D", x: -1.8, y: -1.5, w: 1.2, h: -0.6, color: "#f72525" },
+  { name: "table E", x: -6.4, y: -1.5, w: 1.2, h: -0.6, color: "#277ff1" },
+  { name: "table F", x: -6.4, y: -3.7, w: 1.2, h: -0.6, color: "#277ff1" },
+  { name: "lift r", x: -1.1, y: -7.7, w: -1.0, h: -0.9, color: "#f72525" },
+  { name: "lift b", x: -4.9, y: -7.7, w: -1.0, h: -0.9, color: "#277ff1" },
+  { name: "start r", x: 0.4, y: 0.4, w: -0.8, h: -0.8, color: "#f72525" },
+  { name: "start b", x: -6.6, y: 0.4, w: -0.8, h: -0.8, color: "#277ff1" },
+  { name: "stage", x: 0.4, y: 0.4, w: -7.8, h: -9.0, color: "#fcfcfc" },
+  { name: "mainstage", x: -1.1, y: -6.6, w: -4.8, h: -2.0, color: "#FFFF00" },
 ];
 
 const C = {
@@ -68,6 +59,8 @@ interface MissionStatus {
   team_color: "RED" | "BLUE" | "NONE";
   program_color: number;
   program_game: number;
+  current_game: number;
+  chair_count?: number;
 }
 
 const pulse = keyframes`0%,100%{opacity:1}50%{opacity:.35}`;
@@ -78,10 +71,12 @@ const scanPulse = keyframes`0%{box-shadow:0 0 0 0 rgba(0,212,170,0.4)}70%{box-sh
 function OdomCanvas({
   odom,
   trail,
+  savedTrail,
   mode,
 }: {
   odom: OdomState;
   trail: { x: number; y: number }[];
+  savedTrail: { x: number; y: number }[] | null;
   mode: number;
 }) {
   const ref = useRef<HTMLCanvasElement>(null);
@@ -109,17 +104,19 @@ function OdomCanvas({
     if (!isDragging.current) return;
     const dx = e.clientX - lastPos.current.x;
     const dy = e.clientY - lastPos.current.y;
-    
+
     setViewState((prev) => ({
       ...prev,
       offsetX: prev.offsetX + dx,
       offsetY: prev.offsetY + dy,
     }));
-    
+
     lastPos.current = { x: e.clientX, y: e.clientY };
   };
 
-  const handleMouseUp = () => { isDragging.current = false; };
+  const handleMouseUp = () => {
+    isDragging.current = false;
+  };
   const handleTouchStart = (e: React.TouchEvent) => {
     isDragging.current = true;
     lastPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
@@ -127,21 +124,23 @@ function OdomCanvas({
 
   const handleTouchMove = (e: React.TouchEvent) => {
     if (!isDragging.current) return;
-    e.preventDefault(); 
-    
+    e.preventDefault();
+
     const dx = e.touches[0].clientX - lastPos.current.x;
     const dy = e.touches[0].clientY - lastPos.current.y;
-    
+
     setViewState((prev) => ({
       ...prev,
       offsetX: prev.offsetX + dx,
       offsetY: prev.offsetY + dy,
     }));
-    
+
     lastPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
   };
 
-  const handleTouchEnd = () => { isDragging.current = false; };
+  const handleTouchEnd = () => {
+    isDragging.current = false;
+  };
 
   useEffect(() => {
     const c = ref.current;
@@ -149,7 +148,8 @@ function OdomCanvas({
     const ctx = c.getContext("2d");
     if (!ctx) return;
 
-    const W = c.clientWidth || 300, H = c.clientHeight || 300;
+    const W = c.clientWidth || 300,
+      H = c.clientHeight || 300;
     c.width = W;
     c.height = H;
 
@@ -166,52 +166,88 @@ function OdomCanvas({
     const gridStep = 1;
     const startX = Math.floor((0 - cx) / SCALE);
     const endX = Math.ceil((W - cx) / SCALE);
+
     const startY = Math.floor((cy - H) / SCALE);
     const endY = Math.ceil(cy / SCALE);
 
     for (let gx = startX; gx <= endX; gx += gridStep) {
       const px = cx + gx * SCALE;
       ctx.strokeStyle = gx === 0 ? "#ffffff44" : C.border;
-      ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, H); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(px, 0);
+      ctx.lineTo(px, H);
+      ctx.stroke();
     }
     for (let gy = startY; gy <= endY; gy += gridStep) {
       const py = cy - gy * SCALE;
       ctx.strokeStyle = gy === 0 ? "#ffffff44" : C.border;
-      ctx.beginPath(); ctx.moveTo(0, py); ctx.lineTo(W, py); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0, py);
+      ctx.lineTo(W, py);
+      ctx.stroke();
     }
 
-    const currentZones = mode === 1 ? rectZonesMode1 : rectZonesMode2;
-    currentZones.forEach((zone) => {
-      let finalColor = mode === 1 ? C.accent2 : C.accent3;
-
-      if (zone.name.toLowerCase().includes("mainstage")) {
-        finalColor = "#FFFF00"; 
-      } else if (zone.name.toLowerCase().includes("start")) {
-        finalColor = "#FFFFFF"; 
-      }
-
+    rectZones.forEach((zone: any) => {
+      const finalColor = zone.color || C.accent;
       const zx = cx + zone.x * SCALE;
       const zy = cy - zone.y * SCALE;
       const zw = zone.w * SCALE;
       const zh = zone.h * SCALE;
 
       ctx.fillStyle = finalColor + "22"; 
-      ctx.strokeStyle = finalColor;
+      ctx.strokeStyle = finalColor; 
+      ctx.lineWidth = 2;
+
       ctx.fillRect(zx, zy - zh, zw, zh);
       ctx.strokeRect(zx, zy - zh, zw, zh);
     });
 
-    if (trail && trail.length > 1) {
+    // วาดเส้นประวัติ (Saved Trail) - ถ้ามี
+    if (savedTrail && savedTrail.length > 1) {
       ctx.beginPath();
-      ctx.strokeStyle = "#00ffee"; 
-      ctx.lineWidth = 2;           
+      ctx.strokeStyle = C.accent2; // สีส้ม
+      ctx.lineWidth = 2;
       ctx.lineJoin = "round";
       ctx.lineCap = "round";
+      ctx.setLineDash([6, 6]); // เส้นประ
+
+      savedTrail.forEach((point, index) => {
+        let mapX = point.x;
+        let mapY = point.y;
+        if (mode === 2) {
+          mapX = -point.x - 7;
+          mapY = -point.y;
+        }
+        const tx = cx + mapX * SCALE;
+        const ty = cy - mapY * SCALE;
+        if (index === 0) ctx.moveTo(tx, ty);
+        else ctx.lineTo(tx, ty);
+      });
+      ctx.stroke();
       ctx.setLineDash([]); 
+    }
+
+    // วาดเส้นวิ่งปัจจุบัน (Current Trail)
+    if (trail && trail.length > 1) {
+      ctx.beginPath();
+      ctx.strokeStyle = "#00ffee";
+      ctx.lineWidth = 2;
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
+      ctx.setLineDash([]);
 
       trail.forEach((point, index) => {
-        const tx = cx + point.x * SCALE;
-        const ty = cy - point.y * SCALE;
+        let mapX = point.x;
+        let mapY = point.y;
+
+        if (mode === 2) {
+          mapX = -point.x - 7;
+          mapY = -point.y;
+        }
+
+        const tx = cx + mapX * SCALE;
+        const ty = cy - mapY * SCALE;
+
         if (index === 0) {
           ctx.moveTo(tx, ty);
         } else {
@@ -221,50 +257,57 @@ function OdomCanvas({
       ctx.stroke();
     }
 
-const px2 = cx + odom.x * SCALE;
-const py2 = cy - odom.y * SCALE;
+    let mapX = odom.x;
+    let mapY = odom.y;
 
-ctx.save();
-ctx.translate(px2, py2); 
+    if (mode === 2) {
+      mapX = -odom.x - 7;
+      mapY = -odom.y;
+    }
 
-let rotationAngle = odom.yaw;
-if (mode === 2) {
-  rotationAngle = -odom.yaw + Math.PI;
-}
-ctx.rotate(-rotationAngle); 
-const rectW = 0.51 * SCALE; 
-const rectH = 0.52 * SCALE; 
+    const px2 = cx + mapX * SCALE;
+    const py2 = cy - mapY * SCALE;
 
-ctx.fillStyle = "#FF69B4"; 
-ctx.fillRect(-rectW / 2, -rectH / 2, rectW, rectH); 
+    ctx.save();
+    ctx.translate(px2, py2);
 
-ctx.strokeStyle = "#FFFFFF"; 
-ctx.lineWidth = 1;
-ctx.strokeRect(-rectW / 2, -rectH / 2, rectW, rectH);
+    let rotationAngle = odom.yaw;
+    if (mode === 2) {
+      rotationAngle = -odom.yaw + Math.PI;
+    }
+    ctx.rotate(-rotationAngle);
+    const rectW = 0.51 * SCALE;
+    const rectH = 0.52 * SCALE;
 
-ctx.strokeStyle = "#FFFFFF"; 
-ctx.lineWidth = 2;
-ctx.beginPath();
-ctx.moveTo(0, 0);
-ctx.lineTo(rectH * 0.8, 0);
-ctx.stroke();
+    ctx.fillStyle = "#FF69B4";
+    ctx.fillRect(-rectW / 2, -rectH / 2, rectW, rectH);
 
-ctx.fillStyle = "#FFFFFF";
-ctx.beginPath();
-ctx.moveTo(rectH * 0.8, 0);
-ctx.lineTo(rectH * 0.8 - 7, -5);
-ctx.lineTo(rectH * 0.8 - 7, 5);
-ctx.closePath();
-ctx.fill();
+    ctx.strokeStyle = "#FFFFFF";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(-rectW / 2, -rectH / 2, rectW, rectH);
 
-ctx.restore();
+    ctx.strokeStyle = "#FFFFFF";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(rectH * 0.8, 0);
+    ctx.stroke();
 
-  }, [odom, trail, mode, viewState]);
+    ctx.fillStyle = "#FFFFFF";
+    ctx.beginPath();
+    ctx.moveTo(rectH * 0.8, 0);
+    ctx.lineTo(rectH * 0.8 - 7, -5);
+    ctx.lineTo(rectH * 0.8 - 7, 5);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.restore();
+  }, [odom, trail, savedTrail, mode, viewState]);
 
   return (
-    <div style={{ position: 'relative', flex: 1, overflow: 'hidden' }}>
-      <OdomCanvasEl 
-        ref={ref} 
+    <div style={{ position: "relative", flex: 1, overflow: "hidden" }}>
+      <OdomCanvasEl
+        ref={ref}
         onWheel={handleWheel}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
@@ -273,13 +316,15 @@ ctx.restore();
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
-        style={{ 
-          cursor: isDragging.current ? 'grabbing' : 'grab',
-          touchAction: 'none' 
+        style={{
+          cursor: isDragging.current ? "grabbing" : "grab",
+          touchAction: "none",
         }}
       />
-      <ResetViewBtn onClick={() => setViewState({ scale: 1, offsetX: 0, offsetY: 0 })}>
-        RESET VIEW
+      <ResetViewBtn
+        onClick={() => setViewState({ scale: 1, offsetX: 0, offsetY: 0 })}
+      >
+        ⌖ RESET VIEW
       </ResetViewBtn>
     </div>
   );
@@ -356,13 +401,13 @@ function DetectedObjectsCard() {
         <span>DETECTED OBJECTS</span>
         <DetectHeaderRight>
           <TopicBadge>/detected_objects</TopicBadge>
-          <DetectDot $active={hasObject} />
+          
         </DetectHeaderRight>
       </DetectHeader>
-      <LatestWrap>
+      {/* <LatestWrap>
         <LatestLabel>LATEST</LatestLabel>
         <LatestValue $color={colorize(latest)}>{latest || "—"}</LatestValue>
-      </LatestWrap>
+      </LatestWrap> */}
       <LogLabel>LOG</LogLabel>
       <LogScroll ref={scrollRef}>
         {log.length === 0 ? (
@@ -380,28 +425,18 @@ function DetectedObjectsCard() {
   );
 }
 
-function MissionStatusCard() {
-  const [mission, setMission] = useState<MissionStatus | null>(null);
-  const [latest, setLatest] = useState<string>("");
-  const [hasObj, setHasObj] = useState(false);
+function MissionStatusCard({ mission }: { mission: MissionStatus | null }) {
+  const colorLabel = mission?.team_color ?? "NONE";
+  const stepNow = mission?.mission_step ?? 0;
+  const totalSteps = mission?.mission_total_steps ?? 0;
+  const isRunning = mission?.mission_running ?? false;
+  const gameNum = mission?.current_game ?? 0;
+  const chairCount = mission?.chair_count ?? 0
+  const progress =
+    totalSteps > 0 ? Math.min((stepNow / totalSteps) * 100, 100) : 0;
 
-  useEffect(() => {
-    let alive = true;
-    const poll = async () => {
-      try {
-        const r = await fetch(`${API_BASE}/api/mission/status`);
-        if (!r.ok) return;
-        const d: MissionStatus = await r.json();
-        if (alive) setMission(d);
-      } catch {}
-    };
-    const id = setInterval(poll, MISSION_POLL_MS);
-    poll();
-    return () => {
-      alive = false;
-      clearInterval(id);
-    };
-  }, []);
+  const [log, setLog] = useState<DetectEntry[]>([]);
+  const [latest, setLatest] = useState<string>("");
 
   useEffect(() => {
     let alive = true;
@@ -411,9 +446,13 @@ function MissionStatusCard() {
         if (!r.ok) return;
         const d = await r.json();
         if (!alive) return;
-        const txt = d.latest ?? "";
-        setLatest(txt);
-        setHasObj(!!(txt && txt.toLowerCase() !== "none" && txt.trim() !== ""));
+        setLatest(d.latest ?? "");
+        const incoming: DetectEntry[] = d.log ?? [];
+        setLog((prev) => {
+          if (incoming.length === prev.length) return prev;
+          const newEntries = incoming.slice(prev.length);
+          return [...prev, ...newEntries].slice(-200);
+        });
       } catch {}
     };
     const id = setInterval(poll, DETECT_POLL_MS);
@@ -424,25 +463,30 @@ function MissionStatusCard() {
     };
   }, []);
 
-  const colorize = (msg: string) => {
+   const colorize = (msg: string): string => {
     if (!msg) return C.muted;
-    const l = msg.toLowerCase();
-    if (l.includes("person") || l.includes("human") || l.includes("face"))
+    const lower = msg.toLowerCase();
+    if (
+      lower.includes("person") ||
+      lower.includes("human") ||
+      lower.includes("face")
+    )
       return "#ff6b35";
-    if (l.includes("none") || msg.trim() === "") return C.muted;
-    if (l.includes("bottle") || l.includes("cup") || l.includes("box"))
+    if (
+      lower.includes("none") ||
+      lower.includes("no object") ||
+      msg.trim() === ""
+    )
+      return C.muted;
+    if (
+      lower.includes("bottle") ||
+      lower.includes("cup") ||
+      lower.includes("box")
+    )
       return "#58a6ff";
     return C.accent;
   };
-
-  const colorLabel = mission?.team_color ?? "NONE";
-  const stepNow = mission?.mission_step ?? 0;
-  const totalSteps = mission?.mission_total_steps ?? 0;
-  const isRunning = mission?.mission_running ?? false;
-  const gameNum = mission?.program_game ?? 0;
-  const progress =
-    totalSteps > 0 ? Math.min((stepNow / totalSteps) * 100, 100) : 0;
-
+  
   return (
     <MissionCard>
       <MCardHeader>
@@ -488,6 +532,15 @@ function MissionStatusCard() {
             {totalSteps > 0 ? ` / ${totalSteps}` : ""}
           </MInfoValue>
         </MInfoBox>
+
+        <MInfoDivider />
+        <MInfoBox>
+          <MInfoLabel>CHAIRS</MInfoLabel>
+          <MInfoValue $color={chairCount > 0 ? C.accent : C.muted}>
+            {chairCount > 0 ? chairCount : "0"}
+          </MInfoValue>
+        </MInfoBox>
+
       </MInfoRow>
 
       {totalSteps > 0 && (
@@ -510,14 +563,10 @@ function MissionStatusCard() {
           {totalSteps > 20 && <StepMore>+{totalSteps - 20}</StepMore>}
         </StepBubbleRow>
       )}
-
-      {/* <MDetectRow>
-        <MDetectLabel>
-          VISION
-          <DetectDot $active={hasObj} />
-        </MDetectLabel>
-        <MDetectValue $color={colorize(latest)}>{latest || "—"}</MDetectValue>
-      </MDetectRow> */}
+        <LatestWrap>
+        <LatestLabel>LATEST</LatestLabel>
+        <LatestValue $color={colorize(latest)}>{latest || "—"}</LatestValue>
+      </LatestWrap>
     </MissionCard>
   );
 }
@@ -527,9 +576,16 @@ export default function TelemetryDashboard() {
   const [data, setData] = useState<any>(null);
   const [ros, setRos] = useState<"online" | "offline">("offline");
   const [odom, setOdom] = useState<OdomState>({ x: 0, y: 0, yaw: 0 });
+  
   const [trail, setTrail] = useState<{ x: number; y: number }[]>([]);
+  const [savedTrails, setSavedTrails] = useState<{name: string, data: {x:number, y:number}[]}[]>([]);
+  const [activeLogIndex, setActiveLogIndex] = useState<number | null>(null);
+
   const [selectedColor, setSelectedColor] = useState<0 | 1 | null>(null);
   const [selectedGame, setSelectedGame] = useState<number | null>(null);
+  const [mission, setMission] = useState<MissionStatus | null>(null);
+  
+  const prevStepRef = useRef<number>(0);
 
   async function post(path: string, body: Record<string, unknown> = {}) {
     try {
@@ -556,6 +612,41 @@ export default function TelemetryDashboard() {
   const onStart = () => post("/api/cmd/program_command", { command: 1 });
   const onEStop = () => post("/api/cmd/estop");
 
+  // Fetch Mission & Auto-Reset Logic
+  useEffect(() => {
+    let alive = true;
+    const poll = async () => {
+      try {
+        const r = await fetch(`${API_BASE}/api/mission/status`);
+        if (!r.ok) return;
+        const d: MissionStatus = await r.json();
+        if (alive) {
+          setMission(d);
+          
+          // ระบบ Auto-Reset เมื่อทำงานจนครบทุก Step 
+          if (
+            d.mission_step === d.mission_total_steps &&
+            d.mission_total_steps > 0 &&
+            prevStepRef.current !== d.mission_step
+          ) {
+            // เมื่อเพิ่งเปลี่ยนสถานะเป็นทำครบทั้งหมด ให้ Reset ปุ่ม
+            setSelectedColor(null);
+            setSelectedGame(null);
+            setActiveMode(1);
+          }
+          prevStepRef.current = d.mission_step;
+        }
+      } catch {}
+    };
+    const id = setInterval(poll, MISSION_POLL_MS);
+    poll();
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, []);
+
+  // Fetch Telemetry & Map Trail
   useEffect(() => {
     let alive = true;
     const poll = async () => {
@@ -569,7 +660,7 @@ export default function TelemetryDashboard() {
         setOdom({ x: d.pose_x ?? 0, y: d.pose_y ?? 0, yaw: d.yaw ?? 0 });
         setTrail((p) => {
           const n = [...p, { x: d.pose_x ?? 0, y: d.pose_y ?? 0 }];
-          return n.length > 600 ? n.slice(-600) : n;
+          return n.length > 5000 ? n.slice(-5000) : n; // เก็บมากสุด 5000 จุดเพื่อรองรับการวาดเส้นยาวยาวๆ
         });
       } catch {
         if (alive) setRos("offline");
@@ -583,7 +674,25 @@ export default function TelemetryDashboard() {
     };
   }, []);
 
+  const handleSaveTrail = () => {
+    if (trail.length === 0) return;
+    const newLog = {
+      name: `Run ${new Date().toLocaleTimeString('th-TH')}`,
+      data: [...trail],
+    };
+    setSavedTrails((prev) => [...prev, newLog]);
+  };
+
+  const handleDeleteLog = (idx: number) => {
+    setSavedTrails((prev) => prev.filter((_, i) => i !== idx));
+    if (activeLogIndex === idx) setActiveLogIndex(null);
+    else if (activeLogIndex !== null && activeLogIndex > idx) {
+      setActiveLogIndex(activeLogIndex - 1);
+    }
+  };
+
   const yawDeg = ((odom.yaw * 180) / Math.PI + 360) % 360;
+  const activeSavedTrailData = activeLogIndex !== null ? savedTrails[activeLogIndex].data : null;
 
   return (
     <>
@@ -605,9 +714,14 @@ export default function TelemetryDashboard() {
             <Card style={{ flex: 1 }}>
               <CardHeader>
                 <HeaderLeft>ODOMETRY MAP</HeaderLeft>
-                <ClearBtn onClick={() => setTrail([])}>🗑 CLEAR</ClearBtn>
+                <ClearBtn onClick={() => setTrail([])}>🗑 CLEAR TRAIL</ClearBtn>
               </CardHeader>
-              <OdomCanvas odom={odom} trail={trail} mode={activeMode} />
+              <OdomCanvas 
+                odom={odom} 
+                trail={trail} 
+                savedTrail={activeSavedTrailData}
+                mode={activeMode} 
+              />
               <OdomFooter>
                 <OC>
                   X: {odom.x >= 0 ? "+" : ""}
@@ -619,27 +733,67 @@ export default function TelemetryDashboard() {
                 </OC>
                 <OC>θ: {yawDeg.toFixed(1)}°</OC>
               </OdomFooter>
-              <CardHeader>
-                <RocketOutlined /> MISSION
+              
+              {/* --- ระบบ MAP LOGS --- */}
+              <CardHeader style={{ borderTop: `1px solid ${C.border}`, marginTop: '8px' }}>
+                <HeaderLeft>MAP LOGS</HeaderLeft>
+                <ActionBtn style={{height: '24px', width: 'auto', padding: '0 12px', fontSize: '10px'}} onClick={handleSaveTrail}>
+                  💾 SAVE CURRENT
+                </ActionBtn>
+              </CardHeader>
+              <div style={{ padding: '8px 14px' }}>
+                {savedTrails.length === 0 && <LogEmpty>No saved trails.</LogEmpty>}
+                {savedTrails.map((st, i) => (
+                  <TrailLogBox key={i}>
+                    <span>{st.name} <span style={{color: C.muted}}>({st.data.length} pts)</span></span>
+                    <div style={{display: 'flex', gap: '8px'}}>
+                      <ClearBtn 
+                        style={{ 
+                          background: activeLogIndex === i ? C.accent : 'transparent',
+                          color: activeLogIndex === i ? C.bg : C.text,
+                          border: `1px solid ${C.accent}`
+                        }} 
+                        onClick={() => setActiveLogIndex(activeLogIndex === i ? null : i)}
+                      >
+                        {activeLogIndex === i ? 'HIDE' : 'VIEW'}
+                      </ClearBtn>
+                      <ClearBtn style={{ color: C.danger, border: `1px solid ${C.danger}44` }} onClick={() => handleDeleteLog(i)}>
+                        DELETE
+                      </ClearBtn>
+                    </div>
+                  </TrailLogBox>
+                ))}
+              </div>
+              {/* ------------------- */}
+
+              <CardHeader style={{ borderTop: `1px solid ${C.border}`}}>
+                <RocketOutlined /> MISSION SETTINGS
               </CardHeader>
               <MissionBody>
                 <SectionLabel>TEAM COLOR</SectionLabel>
-                <ButtonGroup>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: "8px",
+                  }}
+                >
                   <ToggleBtn
                     $active={selectedColor === 0}
                     $variant="red"
                     onClick={() => onSelectColor(0)}
                   >
-                    <PlayCircleOutlined /> RED
+                    RED
                   </ToggleBtn>
                   <ToggleBtn
                     $active={selectedColor === 1}
                     $variant="blue"
                     onClick={() => onSelectColor(1)}
                   >
-                    <PlayCircleOutlined /> BLUE
+                    BLUE
                   </ToggleBtn>
-                </ButtonGroup>
+                </div>
+
                 <SectionLabel style={{ marginTop: 14 }}>GAME MODE</SectionLabel>
                 <GameGrid>
                   {Array.from({ length: 10 }, (_, i) => i + 1).map((g) => (
@@ -655,11 +809,11 @@ export default function TelemetryDashboard() {
                 <ActionRowGrid style={{ marginTop: 14 }}>
                   <ActionBtn onClick={onStart}>START</ActionBtn>
                 </ActionRowGrid>
-                <EStopSection>
+                {/* <EStopSection>
                   <EStopButton onClick={onEStop}>
                     <StopFilled style={{ fontSize: "1.5rem" }} /> E-STOP
                   </EStopButton>
-                </EStopSection>
+                </EStopSection> */}
               </MissionBody>
             </Card>
           </LeftCol>
@@ -681,8 +835,8 @@ export default function TelemetryDashboard() {
                 <img src={STREAM_URL} alt="live" />
               </StreamWrap>
             </Card>
-            <MissionStatusCard />
-             <DetectedObjectsCard />
+            <MissionStatusCard mission={mission} />
+            <DetectedObjectsCard />
           </RightCol>
         </MainGrid>
 
@@ -790,20 +944,22 @@ const OdomCanvasEl = styled.canvas`
 `;
 const ResetViewBtn = styled.button`
   position: absolute;
-  top: 10px;
-  right: 10px;
-  background: ${C.accent};
-  color: ${C.bg};
-  border: none;
-  border-radius: 4px;
+  bottom: 15px;
+  right: 15px;
+  background: ${C.bg};
+  color: ${C.accent};
+  border: 1px solid ${C.accent};
+  border-radius: 6px;
   padding: 6px 12px;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
   cursor: pointer;
-  z-index: 10;
-  transition: opacity 0.15s;
+  z-index: 5;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.4);
+  transition: all 0.2s;
   &:hover {
-    opacity: 0.8;
+    background: ${C.accent};
+    color: ${C.bg};
   }
 `;
 const OdomFooter = styled.div`
@@ -817,18 +973,31 @@ const OC = styled.span`
   color: ${C.accent};
 `;
 const ClearBtn = styled.button`
-  background: ${C.border};
+  background: transparent;
   color: ${C.text};
-  border: none;
+  border: 1px solid ${C.border};
   border-radius: 4px;
   font-family: "Consolas", monospace;
-  font-size: 8px;
-  padding: 3px 8px;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 4px 8px;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: all 0.15s;
   &:hover {
     background: ${C.muted};
     color: ${C.bg};
+  }
+`;
+const TrailLogBox = styled.div`
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px dashed ${C.border};
+  font-size: 11px;
+  color: ${C.text};
+  &:last-child {
+    border-bottom: none;
   }
 `;
 const MissionBody = styled.div`
@@ -842,11 +1011,6 @@ const SectionLabel = styled.div`
   font-size: 0.65rem;
   letter-spacing: 1px;
   margin-bottom: 4px;
-`;
-const ButtonGroup = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
 `;
 const ToggleBtn = styled.button<{ $active: boolean; $variant: "red" | "blue" }>`
   height: 48px;
@@ -1128,7 +1292,7 @@ const MInfoDivider = styled.div`
 
 const ProgressWrap = styled.div`
   position: relative;
-  margin: 10px 14px 0;
+  margin: 24px ;
   height: 6px;
   background: ${C.border};
   border-radius: 3px;
@@ -1180,44 +1344,4 @@ const StepMore = styled.span`
   font-size: 8px;
   color: ${C.muted};
   line-height: 10px;
-`;
-
-const MDetectRow = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-  border-top: 1px solid ${C.border};
-  flex-shrink: 0;
-`;
-const MDetectLabel = styled.div`
-  font-size: 8px;
-  color: ${C.muted};
-  letter-spacing: 1.5px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-`;
-
-const MDetectValue = styled.div<{ $color: string }>`
-  font-size: 12px;
-  font-weight: 700;
-  font-family: "Consolas", monospace;
-  color: ${(p) => p.$color};
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-`;
-const DetectDot = styled.span<{ $active: boolean }>`
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  display: inline-block;
-  background: ${(p) => (p.$active ? C.success : C.border)};
-  ${(p) =>
-    p.$active &&
-    css`
-      animation: ${blink} 1s ease-in-out infinite;
-    `}
 `;
