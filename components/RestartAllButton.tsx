@@ -16,12 +16,16 @@ interface RestartAllButtonProps {
   onSuccess?: () => void; // เอาไว้สั่ง fetchServices() ใหม่ในหน้าหลัก
 }
 
-export default function RestartAllButton({ services, onSuccess }: RestartAllButtonProps) {
+export default function RestartAllButton({
+  services,
+  onSuccess,
+}: RestartAllButtonProps) {
   const [isLoading, setIsLoading] = useState(false);
 
   const handleRestartAll = async () => {
     if (services.length === 0) return;
-    if (!window.confirm("Are you sure you want to RESTART ALL services?")) return;
+    if (!window.confirm("Are you sure you want to RESTART ALL services?"))
+      return;
 
     setIsLoading(true);
     try {
@@ -35,9 +39,8 @@ export default function RestartAllButton({ services, onSuccess }: RestartAllButt
 
       await Promise.all(restartPromises);
       await new Promise((r) => setTimeout(r, 1500));
-      
+
       if (onSuccess) onSuccess();
-      
     } catch (error) {
       console.error(`Error restarting all services: ${error}`);
     } finally {
@@ -46,7 +49,10 @@ export default function RestartAllButton({ services, onSuccess }: RestartAllButt
   };
 
   return (
-    <StyledButton onClick={handleRestartAll} disabled={isLoading || services.length === 0}>
+    <StyledButton
+      onClick={handleRestartAll}
+      disabled={isLoading || services.length === 0}
+    >
       {isLoading ? <Spin /> : "↺ Restart All"}
     </StyledButton>
   );
@@ -78,16 +84,16 @@ const StyledButton = styled.button`
   border: none;
   border-radius: 12px;
   cursor: pointer;
-  
+
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  
+
   /* ป้องกันการเผลอไปคลุมดำข้อความเวลาขยับนิ้วกดบนมือถือ */
-  user-select: none; 
+  user-select: none;
   -webkit-tap-highlight-color: transparent; /* ลบกรอบไฮไลท์สีฟ้าเวลาทัชบนเว็บเบราว์เซอร์มือถือ */
-  
+
   transition: all 0.15s ease-in-out;
 
   &:hover:not(:disabled) {

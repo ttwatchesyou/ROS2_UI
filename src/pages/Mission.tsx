@@ -92,7 +92,13 @@ const INITIAL_BLOCK_DEFS: BlockDef[] = [
     icon: "🔘",
     category: "flow",
     params: [
-      { key: "sensor_key", label: "Pin/Key Name", type: "select", options: ["button_start", "btn_safety", "sensor_ir"], default: "button_start" }
+      {
+        key: "sensor_key",
+        label: "Pin/Key Name",
+        type: "select",
+        options: ["button_start", "btn_safety", "sensor_ir"],
+        default: "button_start",
+      },
     ],
     apiBuilder: () => ({ path: "", body: {} }), // จัดการในขบวนการ Execute พิเศษ
   },
@@ -104,7 +110,7 @@ const INITIAL_BLOCK_DEFS: BlockDef[] = [
     category: "flow",
     params: [{ key: "ms", label: "ms", type: "number", default: 500 }],
     apiBuilder: () => ({ path: "/api/cmd/estop", body: {} }),
-  }
+  },
 ];
 
 const CATEGORIES = [
@@ -136,10 +142,17 @@ export default function MissionEditor() {
   const [customIcon, setCustomIcon] = useState("🚀");
 
   const stopRef = useRef(false);
-  const dragSrcRef = useRef<{ type: "palette" | "queue"; defId?: string; instanceId?: string } | null>(null);
+  const dragSrcRef = useRef<{
+    type: "palette" | "queue";
+    defId?: string;
+    instanceId?: string;
+  } | null>(null);
 
   const addLog = (msg: string) =>
-    setLog((l) => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...l.slice(0, 49)]);
+    setLog((l) => [
+      `[${new Date().toLocaleTimeString()}] ${msg}`,
+      ...l.slice(0, 49),
+    ]);
 
   // ฟังค์ชันสำหรับเพิ่ม Block ใหม่เข้า Palette เองแบบ Dynamic
   const handleCreateCustomBlock = (e: React.FormEvent) => {
@@ -152,9 +165,7 @@ export default function MissionEditor() {
       color: customColor,
       icon: customIcon,
       category: "custom",
-      params: [
-        { key: "val1", label: "Value 1", type: "number", default: 0 },
-      ],
+      params: [{ key: "val1", label: "Value 1", type: "number", default: 0 }],
       apiBuilder: (p) => ({
         path: customPath,
         body: { value: +p.val1 },
@@ -166,8 +177,12 @@ export default function MissionEditor() {
     setCustomName("");
   };
 
-  const onPaletteDragStart = (defId: string) => { dragSrcRef.current = { type: "palette", defId }; };
-  const onQueueDragStart = (instanceId: string) => { dragSrcRef.current = { type: "queue", instanceId }; };
+  const onPaletteDragStart = (defId: string) => {
+    dragSrcRef.current = { type: "palette", defId };
+  };
+  const onQueueDragStart = (instanceId: string) => {
+    dragSrcRef.current = { type: "queue", instanceId };
+  };
 
   const onDropQueue = (e: React.DragEvent, insertIdx: number) => {
     e.preventDefault();
@@ -181,7 +196,9 @@ export default function MissionEditor() {
       const instance: BlockInstance = {
         instanceId: newId(),
         defId: def.id,
-        params: Object.fromEntries(def.params.map((p) => [p.key, String(p.default)])),
+        params: Object.fromEntries(
+          def.params.map((p) => [p.key, String(p.default)])
+        ),
       };
       setQueue((q) => {
         const next = [...q];
@@ -224,7 +241,7 @@ export default function MissionEditor() {
         const targetSensor = currentBlock.params.sensor_key || "button_start";
         let pressed = false;
         addLog(`⏳ รอสัญญาณปุ่มกดจากบอร์ด [${targetSensor}]...`);
-        
+
         while (!pressed && !stopRef.current) {
           try {
             const response = await fetch(`${API_BASE}/api/telemetry`);
@@ -238,11 +255,11 @@ export default function MissionEditor() {
           }
           await new Promise((r) => setTimeout(r, 200)); // Polling ทุกๆ 200ms
         }
-      } 
+      }
       // 2. ลอจิกรอป้อนเวลาทั่วไป
       else if (currentBlock.defId === "wait") {
         await new Promise((r) => setTimeout(r, +currentBlock.params.ms || 500));
-      } 
+      }
       // 3. ยิงคำสั่ง Standard API
       else if (def) {
         const { path, body } = def.apiBuilder(currentBlock.params);
@@ -252,7 +269,9 @@ export default function MissionEditor() {
 
     setCurrentIdx(null);
     setRunning(false);
-    addLog(stopRef.current ? "🛑 คำสั่งถูกบังคับหยุด" : "✅ สิ้นสุด Mission สำเร็จ");
+    addLog(
+      stopRef.current ? "🛑 คำสั่งถูกบังคับหยุด" : "✅ สิ้นสุด Mission สำเร็จ"
+    );
   }, [running, queue, blockDefs]);
 
   const stopMission = () => {
@@ -271,7 +290,11 @@ export default function MissionEditor() {
           <SectionTitle>BLOCK PALETTE</SectionTitle>
           <CatTabs>
             {CATEGORIES.map((c) => (
-              <CatTab key={c.id} $active={activeCategory === c.id} onClick={() => setActiveCategory(c.id)}>
+              <CatTab
+                key={c.id}
+                $active={activeCategory === c.id}
+                onClick={() => setActiveCategory(c.id)}
+              >
                 {c.label}
               </CatTab>
             ))}
@@ -279,22 +302,49 @@ export default function MissionEditor() {
 
           {activeCategory === "custom" ? (
             <CustomBuilderForm onSubmit={handleCreateCustomBlock}>
-              <FormInput placeholder="ชื่อบล็อก (เช่น ปล่อยของ)" value={customName} onChange={(e) => setCustomName(e.target.value)} />
-              <FormInput placeholder="API Path (เช่น /api/cmd/drop)" value={customPath} onChange={(e) => setCustomPath(e.target.value)} />
+              <FormInput
+                placeholder="ชื่อบล็อก (เช่น ปล่อยของ)"
+                value={customName}
+                onChange={(e) => setCustomName(e.target.value)}
+              />
+              <FormInput
+                placeholder="API Path (เช่น /api/cmd/drop)"
+                value={customPath}
+                onChange={(e) => setCustomPath(e.target.value)}
+              />
               <div style={{ display: "flex", gap: "6px" }}>
-                <FormInput type="color" value={customColor} onChange={(e) => setCustomColor(e.target.value)} style={{ width: "45px", padding: 0 }} />
-                <FormInput placeholder="icon เช่น 💥" value={customIcon} onChange={(e) => setCustomIcon(e.target.value)} style={{ flex: 1 }} />
+                <FormInput
+                  type="color"
+                  value={customColor}
+                  onChange={(e) => setCustomColor(e.target.value)}
+                  style={{ width: "45px", padding: 0 }}
+                />
+                <FormInput
+                  placeholder="icon เช่น 💥"
+                  value={customIcon}
+                  onChange={(e) => setCustomIcon(e.target.value)}
+                  style={{ flex: 1 }}
+                />
               </div>
-              <CreateBlockBtn type="submit">+ เพิ่มเข้าชุดเครื่องมือ</CreateBlockBtn>
+              <CreateBlockBtn type="submit">
+                + เพิ่มเข้าชุดเครื่องมือ
+              </CreateBlockBtn>
             </CustomBuilderForm>
           ) : (
             <PaletteList>
-              {blockDefs.filter((d) => d.category === activeCategory).map((def) => (
-                <PaletteBlock key={def.id} $color={def.color} draggable onDragStart={() => onPaletteDragStart(def.id)}>
-                  <span>{def.icon}</span>
-                  <BlockLabelText>{def.label}</BlockLabelText>
-                </PaletteBlock>
-              ))}
+              {blockDefs
+                .filter((d) => d.category === activeCategory)
+                .map((def) => (
+                  <PaletteBlock
+                    key={def.id}
+                    $color={def.color}
+                    draggable
+                    onDragStart={() => onPaletteDragStart(def.id)}
+                  >
+                    <span>{def.icon}</span>
+                    <BlockLabelText>{def.label}</BlockLabelText>
+                  </PaletteBlock>
+                ))}
             </PaletteList>
           )}
         </Palette>
@@ -302,11 +352,21 @@ export default function MissionEditor() {
         {/* WORKSPACE / QUEUE AREA */}
         <QueueArea>
           <QueueHeader>
-            <span style={{ color: "#e6edf3", fontWeight: "bold", fontSize: 13, letterSpacing: 1 }}>
+            <span
+              style={{
+                color: "#e6edf3",
+                fontWeight: "bold",
+                fontSize: 13,
+                letterSpacing: 1,
+              }}
+            >
               ⚙️ SUDAKHON SEQUENCE ({queue.length} บล็อก)
             </span>
             <HeaderBtns>
-              <RunBtn onClick={runMission} disabled={running || queue.length === 0}>
+              <RunBtn
+                onClick={runMission}
+                disabled={running || queue.length === 0}
+              >
                 {running ? "⚡ RUNNING" : "▶ START"}
               </RunBtn>
               <StopBtn onClick={stopMission} disabled={!running}>
@@ -315,8 +375,18 @@ export default function MissionEditor() {
             </HeaderBtns>
           </QueueHeader>
 
-          <DropZone $over={dragOver} onDragOver={(e) => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={(e) => onDropQueue(e, queue.length)}>
-            {queue.length === 0 && <EmptyHint>📥 ลากบล็อกคำสั่งมาจัดเรียงลำดับทำงานที่นี่</EmptyHint>}
+          <DropZone
+            $over={dragOver}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragOver(true);
+            }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => onDropQueue(e, queue.length)}
+          >
+            {queue.length === 0 && (
+              <EmptyHint>📥 ลากบล็อกคำสั่งมาจัดเรียงลำดับทำงานที่นี่</EmptyHint>
+            )}
 
             {queue.map((block, idx) => {
               const def = blockDefs.find((d) => d.id === block.defId)!;
@@ -325,7 +395,13 @@ export default function MissionEditor() {
 
               return (
                 <React.Fragment key={block.instanceId}>
-                  <DropSlot onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.stopPropagation(); onDropQueue(e, idx); }} />
+                  <DropSlot
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => {
+                      e.stopPropagation();
+                      onDropQueue(e, idx);
+                    }}
+                  />
 
                   <QueueBlock $color={def.color} $active={isCurrentExecuting}>
                     <BlockTop>
@@ -333,7 +409,15 @@ export default function MissionEditor() {
                       <span style={{ fontSize: 16 }}>{def.icon}</span>
                       <BlockLabel>{def.label}</BlockLabel>
                       {isCurrentExecuting && <RunningDot />}
-                      <RemoveBtn onClick={() => setQueue((q) => q.filter((b) => b.instanceId !== block.instanceId))}>✕</RemoveBtn>
+                      <RemoveBtn
+                        onClick={() =>
+                          setQueue((q) =>
+                            q.filter((b) => b.instanceId !== block.instanceId)
+                          )
+                        }
+                      >
+                        ✕
+                      </RemoveBtn>
                     </BlockTop>
 
                     {def.params.length > 0 && (
@@ -346,11 +430,25 @@ export default function MissionEditor() {
                                 value={block.params[p.key]}
                                 onChange={(e) => {
                                   const val = e.target.value;
-                                  setQueue((q) => q.map((b) => b.instanceId === block.instanceId ? { ...b, params: { ...b.params, [p.key]: val } } : b));
+                                  setQueue((q) =>
+                                    q.map((b) =>
+                                      b.instanceId === block.instanceId
+                                        ? {
+                                            ...b,
+                                            params: {
+                                              ...b.params,
+                                              [p.key]: val,
+                                            },
+                                          }
+                                        : b
+                                    )
+                                  );
                                 }}
                               >
                                 {p.options!.map((o) => (
-                                  <option key={o} value={o}>{o}</option>
+                                  <option key={o} value={o}>
+                                    {o}
+                                  </option>
                                 ))}
                               </ParamSelect>
                             ) : (
@@ -359,7 +457,19 @@ export default function MissionEditor() {
                                 value={block.params[p.key]}
                                 onChange={(e) => {
                                   const val = e.target.value;
-                                  setQueue((q) => q.map((b) => b.instanceId === block.instanceId ? { ...b, params: { ...b.params, [p.key]: val } } : b));
+                                  setQueue((q) =>
+                                    q.map((b) =>
+                                      b.instanceId === block.instanceId
+                                        ? {
+                                            ...b,
+                                            params: {
+                                              ...b.params,
+                                              [p.key]: val,
+                                            },
+                                          }
+                                        : b
+                                    )
+                                  );
                                 }}
                               />
                             )}
@@ -371,7 +481,13 @@ export default function MissionEditor() {
                 </React.Fragment>
               );
             })}
-            <DropSlot onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.stopPropagation(); onDropQueue(e, queue.length); }} />
+            <DropSlot
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.stopPropagation();
+                onDropQueue(e, queue.length);
+              }}
+            />
           </DropZone>
         </QueueArea>
 
@@ -380,7 +496,9 @@ export default function MissionEditor() {
           <SectionTitle>SYSTEM LOG</SectionTitle>
           <LogList>
             {log.length === 0 && <LogEntry $dim>System Idle ...</LogEntry>}
-            {log.map((l, i) => <LogEntry key={i}>{l}</LogEntry>)}
+            {log.map((l, i) => (
+              <LogEntry key={i}>{l}</LogEntry>
+            ))}
           </LogList>
         </LogPanel>
       </Layout>
@@ -437,7 +555,9 @@ const CatTab = styled.div<{ $active: boolean }>`
   border: 1px solid ${(p) => (p.$active ? "#58a6ff" : "transparent")};
   color: ${(p) => (p.$active ? "#58a6ff" : "#8b949e")};
   transition: 0.2s;
-  &:hover { background: #21262d; }
+  &:hover {
+    background: #21262d;
+  }
 `;
 const PaletteList = styled.div`
   display: flex;
@@ -454,8 +574,11 @@ const PaletteBlock = styled.div<{ $color: string }>`
   display: flex;
   align-items: center;
   gap: 10px;
-  box-shadow: 0 4px 6px rgba(0,0,0,0.15);
-  &:hover { border-color: #58a6ff; transform: translateY(-1px); }
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15);
+  &:hover {
+    border-color: #58a6ff;
+    transform: translateY(-1px);
+  }
 `;
 const BlockLabelText = styled.span`
   font-size: 12px;
@@ -489,7 +612,9 @@ const RunBtn = styled.button`
   font-size: 12px;
   font-weight: bold;
   cursor: pointer;
-  &:hover { background: #2ea44f; }
+  &:hover {
+    background: #2ea44f;
+  }
 `;
 const StopBtn = styled.button`
   background: #da3637;
@@ -518,7 +643,10 @@ const EmptyHint = styled.div`
 const DropSlot = styled.div`
   height: 6px;
   margin: 2px 0;
-  &:hover { background: #58a6ff33; border-radius: 4px; }
+  &:hover {
+    background: #58a6ff33;
+    border-radius: 4px;
+  }
 `;
 const pulseGlow = keyframes`
   0% { transform: scale(1); box-shadow: 0 0 4px #ffc107; opacity: 0.9; }
@@ -530,7 +658,8 @@ const QueueBlock = styled.div<{ $color: string; $active: boolean }>`
   border-radius: 8px;
   padding: 12px;
   border: 2px solid ${(p) => (p.$active ? "#ffc107" : "#21262d")};
-  animation: ${(p) => (p.$active ? pulseGlow : "none")} 1.5s infinite ease-in-out;
+  animation: ${(p) => (p.$active ? pulseGlow : "none")} 1.5s infinite
+    ease-in-out;
 `;
 const BlockTop = styled.div`
   display: flex;
@@ -539,7 +668,7 @@ const BlockTop = styled.div`
   margin-bottom: 8px;
 `;
 const BlockNum = styled.div`
-  background: rgba(0,0,0,0.3);
+  background: rgba(0, 0, 0, 0.3);
   color: #8b949e;
   font-size: 11px;
   width: 18px;
@@ -562,34 +691,93 @@ const RunningDot = styled.div`
   background: #ffc107;
 `;
 const RemoveBtn = styled.button`
-  background: none; border: none; color: #484f58; cursor: pointer;
-  &:hover { color: #f85149; }
+  background: none;
+  border: none;
+  color: #484f58;
+  cursor: pointer;
+  &:hover {
+    color: #f85149;
+  }
 `;
 const ParamsRow = styled.div`
-  display: flex; gap: 10px; background: rgba(0,0,0,0.2); padding: 6px; border-radius: 6px;
+  display: flex;
+  gap: 10px;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 6px;
+  border-radius: 6px;
 `;
-const ParamField = styled.div` display: flex; flex-direction: column; `;
-const ParamLabel = styled.span` font-size: 9px; color: #8b949e; margin-bottom: 2px; `;
+const ParamField = styled.div`
+  display: flex;
+  flex-direction: column;
+`;
+const ParamLabel = styled.span`
+  font-size: 9px;
+  color: #8b949e;
+  margin-bottom: 2px;
+`;
 const ParamInput = styled.input`
-  background: #0d1117; border: 1px solid #30363d; color: #fff; width: 65px; font-size: 11px; padding: 2px 4px; border-radius: 4px;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  color: #fff;
+  width: 65px;
+  font-size: 11px;
+  padding: 2px 4px;
+  border-radius: 4px;
 `;
 const ParamSelect = styled.select`
-  background: #0d1117; border: 1px solid #30363d; color: #fff; font-size: 11px; padding: 2px 4px; border-radius: 4px;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  color: #fff;
+  font-size: 11px;
+  padding: 2px 4px;
+  border-radius: 4px;
 `;
 const CustomBuilderForm = styled.form`
-  display: flex; flex-direction: column; gap: 8px; background: #21262d; padding: 10px; border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #21262d;
+  padding: 10px;
+  border-radius: 8px;
 `;
 const FormInput = styled.input`
-  background: #0d1117; border: 1px solid #30363d; color: #fff; font-size: 12px; padding: 6px; border-radius: 6px;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  color: #fff;
+  font-size: 12px;
+  padding: 6px;
+  border-radius: 6px;
 `;
 const CreateBlockBtn = styled.button`
-  background: #1f6feb; border: none; color: #fff; padding: 8px; border-radius: 6px; font-size: 11px; font-weight: bold; cursor: pointer;
-  &:hover { background: #388bfd; }
+  background: #1f6feb;
+  border: none;
+  color: #fff;
+  padding: 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: bold;
+  cursor: pointer;
+  &:hover {
+    background: #388bfd;
+  }
 `;
 const LogPanel = styled.div`
-  background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 12px; display: flex; flex-direction: column;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
 `;
-const LogList = styled.div` flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; `;
+const LogList = styled.div`
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+`;
 const LogEntry = styled.div<{ $dim?: boolean }>`
-  font-size: 10px; color: ${(p) => (p.$dim ? "#484f58" : "#c9d1d9")}; font-family: monospace;
+  font-size: 10px;
+  color: ${(p) => (p.$dim ? "#484f58" : "#c9d1d9")};
+  font-family: monospace;
 `;

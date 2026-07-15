@@ -3,29 +3,36 @@
 import Head from "next/dist/shared/lib/head";
 import React, { useState, useEffect } from "react";
 import styled, { keyframes } from "styled-components";
-import RestartAllButton from "../../components/RestartAllButton";
+// import RestartAllButton from "../../components/RestartAllButton"; // คอมเมนต์ไว้ถ้าไม่มีไฟล์นี้ หรือเปิดใช้ตามระบบเดิมของคุณ
 
-// 🎯 เปลี่ยนมาดึงค่าจาก Environment Variable (.env.local) แทนการ Hardcode IP
 const API_BASE_URL = `${process.env.NEXT_PUBLIC_ROBOT_API}/api`;
 
 interface ServiceData {
   name: string;
   status: string;
+  last_check: string;
+  last_restart: string;
 }
 
-type LoadingAction = "start" | "stop" | "restart" | null;
+type LoadingAction = "start" | "stop" | "restart" | "remove" | null;
 
 const ServiceCard = ({
   name,
   status,
+  last_check,
+  last_restart,
   onControl,
   onRestart,
+  onRemove,
   onViewLogs,
 }: {
   name: string;
   status: string;
+  last_check: string;
+  last_restart: string;
   onControl: (name: string, action: string) => Promise<void>;
   onRestart: (name: string) => Promise<void>;
+  onRemove: (name: string) => Promise<void>;
   onViewLogs: (name: string) => void;
 }) => {
   const [loading, setLoading] = useState<LoadingAction>(null);
@@ -40,9 +47,33 @@ const ServiceCard = ({
   return (
     <Card $active={isActive}>
       <CardHeader>
-        <ServiceName>{name}</ServiceName>
-        <StatusBadge $active={isActive}>{status}</StatusBadge>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <ServiceName>{name}</ServiceName>
+          <StatusBadge $active={isActive}>{status}</StatusBadge>
+        </div>
+        <RemoveBtn
+          disabled={loading !== null}
+          onClick={() => {
+            if (
+              window.confirm(
+                `คุณแน่ใจหรือไม่ที่จะลบ ${name} ออกจากการ Monitor?`
+              )
+            ) {
+              handle("remove", () => onRemove(name));
+            }
+          }}
+          title="Remove Service"
+        >
+          ✕
+        </RemoveBtn>
       </CardHeader>
+
+      <TimeInfo>
+        <div>⏱ เช็คล่าสุด: {last_check || "-"}</div>
+        {last_restart !== "-" && (
+          <RestartAlert>🔄 Auto-Restart ล่าสุด: {last_restart}</RestartAlert>
+        )}
+      </TimeInfo>
 
       <ButtonGroup>
         <ActionBtn
@@ -83,7 +114,7 @@ export default function ServiceDashboard() {
     try {
       const res = await fetch(`${API_BASE_URL}/services`);
       const data = await res.json();
-      setServices(Array.isArray(data) ? data : data.services || []);
+      setServices(data.services || []);
     } catch (e) {
       console.error("Fetch Error:", e);
     }
@@ -105,6 +136,15 @@ export default function ServiceDashboard() {
       body: JSON.stringify({ service: name }),
     });
     await new Promise((r) => setTimeout(r, 1500));
+    await fetchServices();
+  };
+
+  const handleRemove = async (name: string) => {
+    await fetch(`${API_BASE_URL}/remove_service`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ service: name }),
+    });
     await fetchServices();
   };
 
@@ -134,8 +174,6 @@ export default function ServiceDashboard() {
     fetchServices();
   };
 
-  // 💡 ลบฟังก์ชัน handleRestartAll เก่าออกแล้ว เพราะตรรกะทั้งหมดถูกย้ายไปอยู่ใน Component ปุ่มแยกเรียบร้อย
-
   useEffect(() => {
     setIsClient(true);
     fetchServices();
@@ -151,7 +189,6 @@ export default function ServiceDashboard() {
         <title>Mechatronics and Robotics</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link href="/logo/MechaLogo.png" rel="icon" />
-        <meta property="og:title" content="Mechatronics and Robotics" />
       </Head>
       <MainSection>
         <MainBox>
@@ -169,10 +206,7 @@ export default function ServiceDashboard() {
                 onKeyDown={(e) => e.key === "Enter" && handleAddService()}
               />
               <AddButton onClick={handleAddService}>Add Service</AddButton>
-              
-              {/* 🎯 ส่ง Props เข้าตัว Component ปุ่มแยก: รายชื่อเซอร์วิส และ ฟังก์ชัน callback สำหรับอัปเดตสถานะไฟหน้าจอ */}
-              <RestartAllButton services={services} onSuccess={fetchServices} />
-              
+              {/* <RestartAllButton services={services} onSuccess={fetchServices} /> */}
             </InputGroup>
           </ControlRow>
 
@@ -182,8 +216,11 @@ export default function ServiceDashboard() {
                 key={svc.name}
                 name={svc.name}
                 status={svc.status}
+                last_check={svc.last_check}
+                last_restart={svc.last_restart}
                 onControl={handleControl}
                 onRestart={handleRestart}
+                onRemove={handleRemove}
                 onViewLogs={handleViewLogs}
               />
             ))}
@@ -303,7 +340,7 @@ const StyledInput = styled.input`
   border-radius: 12px;
   font-size: 16px;
   outline: none;
-  
+
   &:focus {
     border-color: #ffdc7c;
   }
@@ -323,7 +360,7 @@ const AddButton = styled.button`
   border-radius: 12px;
   cursor: pointer;
   transition: background 0.15s;
-  
+
   &:hover {
     background: #ffe6a5;
   }
@@ -376,6 +413,38 @@ const StatusBadge = styled.span<{ $active: boolean }>`
     p.$active ? "rgba(74,222,128,0.1)" : "rgba(248,113,113,0.1)"};
   border-radius: 4px;
   flex-shrink: 0;
+`;
+
+const RemoveBtn = styled.button`
+  background: transparent;
+  border: none;
+  color: #ef4444;
+  font-size: 1.2rem;
+  font-weight: bold;
+  cursor: pointer;
+  padding: 0 4px;
+  transition: transform 0.15s, color 0.15s;
+
+  &:hover {
+    color: #fca5a5;
+    transform: scale(1.2);
+  }
+
+  &:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+  }
+`;
+
+const TimeInfo = styled.div`
+  font-size: 0.75rem;
+  color: #9ca3af;
+  margin-bottom: 8px;
+`;
+
+const RestartAlert = styled.div`
+  color: #f87171;
+  margin-top: 4px;
 `;
 
 const ButtonGroup = styled.div`

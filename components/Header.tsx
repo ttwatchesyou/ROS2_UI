@@ -3,30 +3,22 @@ import styled from "styled-components";
 import { Layout } from "antd";
 import { Divide as HamburgerDivide } from "hamburger-react";
 import { useRouter } from "next/router";
-import RestartAllButton from "./RestartAllButton";
+// import RestartAllButton from "./RestartAllButton";
 
 const { Header } = Layout;
 const API_BASE_URL = `${process.env.NEXT_PUBLIC_ROBOT_API}/api`;
 
-const HeaderComponent: React.FC = () => {
-
-  interface ServiceData {
+interface ServiceData {
   name: string;
   status: string;
 }
+
+const HeaderComponent: React.FC = () => {
   const [isMenuOpen, setIsMenuOpen] = useState<boolean>(false);
   const [services, setServices] = useState<ServiceData[]>([]);
-  // const scrollToSection = (id: string) => {
-  //   const element = document.getElementById(id);
-  //   if (element) {
-  //     element.scrollIntoView({
-  //       behavior: "smooth",
-  //       block: "start",
-  //     });
-  //   }
-  // };
-   const [isClient, setIsClient] = useState(false);
+  const [isClient, setIsClient] = useState(false);
   const router = useRouter();
+
   const fetchServices = async () => {
     try {
       const res = await fetch(`${API_BASE_URL}/services`);
@@ -38,77 +30,85 @@ const HeaderComponent: React.FC = () => {
   };
 
   useEffect(() => {
-      setIsClient(true);
-      fetchServices();
-      const id = setInterval(fetchServices, 3000);
-      return () => clearInterval(id);
-    }, []);
-  
-    if (!isClient) return null;
+    setIsClient(true);
+    fetchServices();
+    const id = setInterval(fetchServices, 3000);
+    return () => clearInterval(id);
+  }, []);
+
+  const handleNavigation = (path: string) => {
+    router.push(path);
+    setIsMenuOpen(false);
+  };
+
+  if (!isClient) return null;
 
   return (
     <StyledHeader>
       <WrapperHeader>
         <HeadLogo
           alt="logo"
-          onClick={() => router.push("/")}
+          onClick={() => handleNavigation("/")}
           src="/logo/MechaLogo.png"
         />
-        {/* <NameTag>
-         Department of Mechatronics and Robotics, Rayong Technical College
-        </NameTag> */}
-           {/* 🎯 ส่ง Props เข้าตัว Component ปุ่มแยก: รายชื่อเซอร์วิส และ ฟังก์ชัน callback สำหรับอัปเดตสถานะไฟหน้าจอ */}
-                      <RestartAllButton services={services} onSuccess={fetchServices} />
+
+        {/* <RestartAllButton services={services} onSuccess={fetchServices} /> */}
+
+        {/* เมนูสำหรับหน้าจอคอม (Desktop) */}
         <DesktopMenuSection>
-          {/* <StyledButton onClick={() => router.push("/Service")}>
+          <StyledButton onClick={() => handleNavigation("/Service")}>
             Service
           </StyledButton>
-          <StyledButton onClick={() => router.push("/RobotTuner")}>
+          <StyledButton onClick={() => handleNavigation("/RobotTuner")}>
             Tuner
           </StyledButton>
-          <StyledButton onClick={() => router.push("/TelemetryPage")}>
+          <StyledButton onClick={() => handleNavigation("/TelemetryPage")}>
             Telemetry
           </StyledButton>
-          <StyledButton onClick={() => router.push("/Control")}>
+          <StyledButton onClick={() => handleNavigation("/Control")}>
             Control
           </StyledButton>
-          <StyledButton onClick={() => router.push("/step")}>
+          <StyledButton onClick={() => handleNavigation("/step")}>
             Step run
           </StyledButton>
-          <StyledButton onClick={() => router.push("/Mission")}>
+          <StyledButton onClick={() => handleNavigation("/Mission")}>
             Mission
-          </StyledButton> */}
+          </StyledButton>
         </DesktopMenuSection>
 
-        <MobileMenuIcon onClick={() => setIsMenuOpen(!isMenuOpen)}>
-          <HamburgerDivide toggle={setIsMenuOpen} toggled={isMenuOpen} />
+        {/* ปุ่ม Hamburger จะแสดงเฉพาะจอมือถือ/แท็บเล็ต/ไอแพด */}
+        <MobileMenuIcon>
+          <HamburgerDivide
+            toggle={setIsMenuOpen}
+            toggled={isMenuOpen}
+            color="#ffdc7c"
+          />
         </MobileMenuIcon>
 
-        {isMenuOpen && (
-          <>
-            <MobileMenu isMenuOpen={isMenuOpen}>
-              <StyledButton onClick={() => router.push("/Service")}>
-                Service
-              </StyledButton>
-              <StyledButton onClick={() => router.push("/RobotTuner")}>
-                Tuner
-              </StyledButton>
-              <StyledButton onClick={() => router.push("/TelemetryPage")}>
-                Telemetry
-              </StyledButton>
-              <StyledButton onClick={() => router.push("/Control")}>
-                Control
-              </StyledButton>
-              <StyledButton onClick={() => router.push("/step")}>
-                Step run
-              </StyledButton>
-              <StyledButton onClick={() => router.push("/Mission")}>
-                Mission
-              </StyledButton>
-            </MobileMenu>
-            <Overlay onClick={() => setIsMenuOpen(false)} />
-          </>
-        )}
+        {/* เมนูสำหรับจอมือถือและไอแพด (Slide จากด้านขวา) */}
+        <MobileMenu isMenuOpen={isMenuOpen}>
+          <StyledButton onClick={() => handleNavigation("/Service")}>
+            Service
+          </StyledButton>
+          <StyledButton onClick={() => handleNavigation("/RobotTuner")}>
+            Tuner
+          </StyledButton>
+          <StyledButton onClick={() => handleNavigation("/TelemetryPage")}>
+            Telemetry
+          </StyledButton>
+          <StyledButton onClick={() => handleNavigation("/Control")}>
+            Control
+          </StyledButton>
+          <StyledButton onClick={() => handleNavigation("/step")}>
+            Step run
+          </StyledButton>
+          <StyledButton onClick={() => handleNavigation("/Mission")}>
+            Mission
+          </StyledButton>
+        </MobileMenu>
+
+        {/* Overlay คลิกพื้นที่ว่างเพื่อปิดเมนู */}
+        {isMenuOpen && <Overlay onClick={() => setIsMenuOpen(false)} />}
       </WrapperHeader>
     </StyledHeader>
   );
@@ -116,86 +116,7 @@ const HeaderComponent: React.FC = () => {
 
 export default HeaderComponent;
 
-// Style components
-const NameTag = styled.div`
-  font-family: Prompt;
-  font-size: 16px;
-  font-weight: 500;
-  line-height: 16px;
-  color: #ffffff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  white-space: nowrap;
-  word-wrap: break-word;
-  @media (max-width: 1024px) {
-    font-size: 22px;
-    line-height: 32px;
-  }
-`;
-
-const StyledButton = styled.div`
-  display: inline-flex;
-  justify-content: center;
-  align-items: center;
-  gap: 10px;
-  color: #ffdc7c;
-  font-family: Prompt;
-  font-size: 16px;
-  font-weight: 500;
-  line-height: 16px;
-  border: none;
-  background: transparent;
-  position: relative;
-  text-align: center;
-  white-space: nowrap;
-  word-wrap: break-word;
-  cursor: pointer;
-  padding: 10px 20px;
-
-  &:hover {
-    color: #a6e1d1 !important;
-  }
-
-  &::after {
-    content: "";
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    width: 0;
-    height: 2px;
-    background-color: #a6e1d1;
-    transition: width 0.3s ease;
-  }
-
-  &:hover::after {
-    width: 100%;
-  }
-
-  &:active {
-    outline: none !important;
-    box-shadow: none !important;
-    color: #a6e1d1;
-  }
-
-  .ant-btn:focus,
-  .ant-btn:active {
-    outline: none !important;
-    box-shadow: none !important;
-  }
-
-  @media (max-width: 1024px) {
-    font-size: 22px;
-    line-height: 32px;
-    padding: 10px 16px;
-  }
-
-  @media (max-width: 767px) {
-    padding: 8px 12px;
-    font-size: 12px;
-    line-height: 22px;
-  }
-`;
+// ─── Styled Components ────────────────────────────────────────────────────────
 
 const StyledHeader = styled(Header)`
   background-color: #1e3271;
@@ -207,28 +128,31 @@ const StyledHeader = styled(Header)`
   justify-content: center;
   backdrop-filter: blur(5px);
   position: sticky;
-  top: 0px;
-  z-index: 10;
+  top: 0;
+  z-index: 50;
 `;
 
 const WrapperHeader = styled.div`
   width: 100%;
   max-width: 1920px;
-  padding: 16px 24px;
+  padding: 0 24px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  @media (max-width: 1024px) {
-  }
 `;
 
 const HeadLogo = styled.img`
   width: 100%;
   max-width: 120px;
   height: auto;
-  margin: 0;
   cursor: pointer;
-  @media (max-width: 1024px) {
+  transition: transform 0.2s;
+
+  &:hover {
+    transform: scale(1.05);
+  }
+
+  @media (max-width: 1200px) {
     max-width: 100px;
   }
 `;
@@ -236,46 +160,96 @@ const HeadLogo = styled.img`
 const DesktopMenuSection = styled.div`
   display: flex;
   align-items: center;
-  gap: 16px;
-  @media (max-width: 1024px) {
+  gap: 8px;
+
+  /* ขยับ Breakpoint เป็น 1200px เพื่อให้ครอบคลุม iPad Pro แนวนอน */
+  @media (max-width: 1200px) {
     display: none;
   }
 `;
 
-const MobileMenuIcon = styled.div`
- 
-  font-size: 24px;
-  cursor: pointer;
+const StyledButton = styled.button`
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
   color: #ffdc7c;
+  font-family: "Prompt", sans-serif;
+  font-size: 16px;
+  font-weight: 500;
+  background: transparent;
+  border: none;
+  position: relative;
+  cursor: pointer;
+  padding: 10px 16px;
+  transition: color 0.3s ease;
 
-  @media (max-width: 1024px) {
+  &:hover {
+    color: #a6e1d1;
+  }
+
+  &::after {
+    content: "";
+    position: absolute;
+    bottom: 4px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 0;
+    height: 2px;
+    background-color: #a6e1d1;
+    transition: width 0.3s ease;
+  }
+
+  &:hover::after {
+    width: 80%;
+  }
+
+  @media (max-width: 1200px) {
+    font-size: 18px; /* ปรับขนาดฟอนต์ให้พอดี ไม่ใหญ่เกินไป */
+    width: 100%;
+    padding: 16px;
+
+    &::after {
+      display: none;
+    }
+    &:hover {
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 8px;
+    }
+  }
+`;
+
+const MobileMenuIcon = styled.div`
+  display: none;
+  z-index: 100;
+
+  @media (max-width: 1200px) {
     display: block;
   }
 `;
 
-interface MobileMenuProps {
-  isMenuOpen: boolean;
-}
-
-const MobileMenu = styled.div<MobileMenuProps>`
+const MobileMenu = styled.div<{ isMenuOpen: boolean }>`
   position: fixed;
-  gap: 32px;
   top: 0;
   right: 0;
-  width: 100%;
-  height: 60vh;
-  background: white;
-  box-shadow: -4px 0 8px rgba(0, 0, 0, 0.1);
+  width: 280px;
+  height: 100vh;
+  background: #152454;
+  box-shadow: -4px 0 15px rgba(0, 0, 0, 0.3);
   display: flex;
   flex-direction: column;
-  padding: 16px;
+  padding: 80px 16px 24px;
+  gap: 8px;
+
+  /* 🎯 เพิ่มคำสั่งนี้ เพื่อให้เมนูสามารถใช้นิ้วปัดเลื่อนขึ้นลงได้ */
+  overflow-y: auto;
+
   transform: ${({ isMenuOpen }) =>
     isMenuOpen ? "translateX(0)" : "translateX(100%)"};
-  transition: transform 0.3s ease-in-out;
-  z-index: 15;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 90;
 
-  @media (max-width: 767px) {
-    gap: 12px;
+  @media (min-width: 1201px) {
+    display: none;
   }
 `;
 
@@ -283,8 +257,9 @@ const Overlay = styled.div`
   position: fixed;
   top: 0;
   left: 0;
-  width: 100%;
+  width: 100vw;
   height: 100vh;
-  background: rgba(0, 0, 0, 0.3);
-  z-index: 10;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(2px);
+  z-index: 80;
 `;

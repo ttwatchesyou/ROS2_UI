@@ -7,6 +7,7 @@ import Layout from "../../components/Layout/Layout";
 import theme from "../../theme/themeConfig";
 import "../styles/globals.css";
 import "antd/dist/reset.css";
+import GlobalServiceMonitor from "../../components/GlobalServiceMonitor";
 
 export type NextPageWithLayout = NextPage & {
   getLayout?: (page: ReactElement) => ReactNode;
@@ -21,6 +22,7 @@ function MyApp({ Component, pageProps }: AppPropsWithLayout) {
 
   return (
     <ConfigProvider theme={theme}>
+      <GlobalServiceMonitor />
       {getLayout(<Component {...pageProps} />)}
     </ConfigProvider>
   );

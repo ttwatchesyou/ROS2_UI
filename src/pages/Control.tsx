@@ -1,25 +1,20 @@
-"use client";
-
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import styled, { keyframes, css } from "styled-components";
 import {
-  StopFilled,
   ControlOutlined,
-  RocketOutlined,
   ArrowUpOutlined,
   ArrowDownOutlined,
   DoubleRightOutlined,
   DoubleLeftOutlined,
-  PlayCircleOutlined,
   PauseCircleOutlined,
   SettingOutlined,
   EditOutlined,
-  KeyOutlined,
+  DashboardOutlined,
 } from "@ant-design/icons";
 import Head from "next/dist/shared/lib/head";
+import { useTelemetry } from "../../hook/useTelemetry";
 
-const API_BASE =
-  process.env.NEXT_PUBLIC_ROBOT_API ?? "http://100.127.237.31:8001";
+const API_BASE = process.env.NEXT_PUBLIC_ROBOT_API ?? "";
 
 async function post(
   path: string,
@@ -39,7 +34,6 @@ async function post(
   }
 }
 
-const MAX_VEL = 0.5;
 const VEL_INTERVAL_MS = 80;
 
 const SERVOS = [
@@ -48,7 +42,22 @@ const SERVOS = [
   { label: "ขวดขวา", channel: 15 },
 ];
 
-// ─── Animations ──────────────────────────────────────────────────────────────
+const SENSOR_LABELS: Record<string, string> = {
+  LimitBoxBUp: "กล่อง บน",
+  LimitBoxBDw: "กล่อง ล่าง",
+  LimitBoxBOut: "กล่อง ออก",
+  LimitBoxBIn: "กล่อง เข้า",
+  SW_1: "สวิตช์ 1",
+  SW_2: "สวิตช์ 2",
+  bottleL_B_UP: "ขวดซ้าย บน",
+  bottleL_B_DW: "ขวดซ้าย ล่าง",
+  bottleR_B_UP: "ขวดขวา บน",
+  bottleR_B_DW: "ขวดขวา ล่าง",
+  bottleL_Check: "ตรวจขวดซ้าย",
+  bottleR_Check: "ตรวจขวดขวา",
+  SensorCheckBoxUp: "เซนเซอร์กล่องบน",
+};
+
 const glow = keyframes`
   0%, 100% { text-shadow: 0 0 6px rgba(255,220,124,0.4); }
   50%       { text-shadow: 0 0 20px rgba(255,220,124,0.9), 0 0 40px rgba(255,220,124,0.3); }
@@ -57,22 +66,15 @@ const fadeUp = keyframes`
   from { opacity: 0; transform: translateY(14px); }
   to   { opacity: 1; transform: translateY(0); }
 `;
-const btnPress = keyframes`
-  0%   { transform: scale(1); }
-  45%  { transform: scale(0.93); }
-  100% { transform: scale(1); }
-`;
 
 export default function ControlCenter() {
-  const [selectedColor, setSelectedColor] = useState<0 | 1 | null>(null);
-  const [selectedGame, setSelectedGame] = useState<number | null>(null);
+  const { telemetry } = useTelemetry(300); // ดึงข้อมูลสวิตช์เซนเซอร์ทุกๆ 300ms
   const [activeBtn, setActiveBtn] = useState<string | null>(null);
 
   const [servoAngles, setServoAngles] = useState<Record<number, number>>(() =>
     Object.fromEntries(SERVOS.map((s) => [s.channel, 90]))
   );
 
-  // 🔥 [NEW] เปลี่ยนสถานะ Prefix ให้มี 2 ช่องคีย์อิสระต่อ 1 เซอร์โว (Key 1 สำหรับ ID/Channel, Key 2 สำหรับ Angle)
   const [servoPrefixes, setServoPrefixes] = useState<
     Record<number, { keyId: string; keyAngle: string }>
   >(() =>
@@ -83,14 +85,6 @@ export default function ControlCenter() {
 
   const velRef = useRef({ vx: 0, vy: 0 });
   const velIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const startVelLoop = useCallback(() => {
-    if (velIntervalRef.current) return;
-    velIntervalRef.current = setInterval(() => {
-      const { vx, vy } = velRef.current;
-      post("/api/cmd/teleop_vel", { vx, vy });
-    }, VEL_INTERVAL_MS);
-  }, []);
 
   const stopVelLoop = useCallback(() => {
     if (velIntervalRef.current) {
@@ -128,7 +122,6 @@ export default function ControlCenter() {
   const onServoChange = (ch: number, angle: number) =>
     setServoAngles((prev) => ({ ...prev, [ch]: angle }));
 
-  // 🔥 [NEW] ฟังก์ชันสำหรับอัปเดต Prefix ทั้ง 2 คีย์แบบแยกแยะกัน
   const onPrefixChange = (
     ch: number,
     field: "keyId" | "keyAngle",
@@ -145,15 +138,16 @@ export default function ControlCenter() {
     const finalAngle = targetAngle ?? servoAngles[ch];
     const { keyId, keyAngle } = servoPrefixes[ch];
 
-    // ประกอบโครงสร้าง JSON Payload จาก Prefix ตัวแปรทั้ง 2 ช่องที่ตั้งค่าไว้
     const payload: Record<string, unknown> = {
       [keyId || "servo_id"]: ch,
-      channel: ch, // ยังคงส่งสำรองไว้
+      channel: ch,
       [keyAngle || "angle"]: finalAngle,
     };
 
     post("/api/cmd/arduino_servo", payload);
   };
+
+  const sensorsData = telemetry?.arduino_sensors ?? {};
 
   return (
     <>
@@ -164,7 +158,6 @@ export default function ControlCenter() {
       </Head>
 
       <Shell>
-        {/* HEADER */}
         <Header>
           <HeaderLeft>
             <Pip />
@@ -173,9 +166,7 @@ export default function ControlCenter() {
           <StatusChip>MANUAL</StatusChip>
         </Header>
 
-        {/* 🔥 [LAYOUT UPDATE] จัดกลุ่มแบ่งขวา-ซ้ายด้วย MainGrid แบบแบ่งสองฝั่งเท่ากัน */}
         <MainGrid>
-          {/* ฝั่งซ้าย: MANUAL ACTUATORS */}
           <LeftColumn>
             <TeleopCard>
               <CardLabel>
@@ -285,12 +276,39 @@ export default function ControlCenter() {
                       </ActBtn>
                     </ActBtnRow>
                   </ActGroup>
+                  <ActGroup>
+                  <ActResetBtn
+                        $wide
+                        $flash={activeBtn === "sl-out"}
+                        onClick={() => [onSlider("in"), onBox("down"), onBottleR("down"),onBottleL("down")]}
+                      >
+                        <DoubleRightOutlined /> reset
+                      </ActResetBtn>
+                      </ActGroup>
                 </ActuatorPanel>
               </TeleopLayout>
             </TeleopCard>
+
+            {/* 🎯 [NEW] เพิ่มกล่องจำลองแสดงสถานะ Arduino Sensors ฝั่งซ้ายล่าง */}
+            <SensorCard style={{ marginTop: "20px", minHeight: "auto" }}>
+              <CardLabel>
+                <DashboardOutlined /> ARDUINO SENSORS STATUS
+              </CardLabel>
+              <Divider />
+              <SensorMiniGrid>
+                {Object.keys(SENSOR_LABELS).map((key) => {
+                  const isActive = sensorsData[key] === 1;
+                  return (
+                    <SensorIndicator key={key} $active={isActive}>
+                      <IndicatorDot $active={isActive} />
+                      <IndicatorLabel>{SENSOR_LABELS[key]}</IndicatorLabel>
+                    </SensorIndicator>
+                  );
+                })}
+              </SensorMiniGrid>
+            </SensorCard>
           </LeftColumn>
 
-          {/* ฝั่งขวา: SERVO MOTORS */}
           <RightColumn>
             <ServoCard>
               <CardLabel>
@@ -300,28 +318,16 @@ export default function ControlCenter() {
               <ServoGrid>
                 {SERVOS.map(({ label, channel }) => {
                   const angle = servoAngles[channel];
-                  const { keyId, keyAngle } = servoPrefixes[channel];
+                  const { keyAngle } = servoPrefixes[channel];
                   return (
                     <ServoRow key={channel}>
-                      {/* ส่วนรายละเอียด และช่องกรอก Prefix สองช่องขนาดใหญ่ */}
                       <ServoMetaContainer>
                         <ServoNameBlock>
                           <ServoName>{label}</ServoName>
                           <ServoAngle>{angle}°</ServoAngle>
                         </ServoNameBlock>
 
-                        {/* 🔥 [NEW UPDATE] ช่องระบุ Prefix 2 คีย์ ขนาดใหญ่เห็นชัดเจนขึ้น */}
                         <PrefixTwinGrid>
-                          {/* <PrefixWrapper>
-                            <KeyOutlined style={{ fontSize: '11px', color: 'rgba(255,220,124,0.5)' }} />
-                            <PrefixInput 
-                              type="text" 
-                              value={keyId}
-                              placeholder="ID Key"
-                              onChange={(e) => onPrefixChange(channel, "keyId", e.target.value)}
-                            />
-                          </PrefixWrapper> */}
-
                           <PrefixWrapper>
                             <EditOutlined
                               style={{
@@ -345,7 +351,6 @@ export default function ControlCenter() {
                         </PrefixTwinGrid>
                       </ServoMetaContainer>
 
-                      {/* ส่วนของตัวเลื่อนปรับมุม (Slider) */}
                       <ServoControlBlock>
                         <SliderWrap>
                           <ServoTrack>
@@ -385,7 +390,7 @@ export default function ControlCenter() {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// STYLED COMPONENTS
+// STYLED COMPONENTS (ดีไซน์เดิม 100%)
 // ═══════════════════════════════════════════════════════════════════
 const Shell = styled.div`
   min-height: 100vh;
@@ -440,17 +445,14 @@ const StatusChip = styled.div`
   padding: 4px 12px;
   border-radius: 20px;
 `;
-
-// 🔥 [MODIFIED] เปลี่ยนตัวครอบ Grid จากแนวตั้งเดิม ให้แยกเป็นการ์ดสองฝั่ง ซ้าย-ขวา
 const MainGrid = styled.div`
   display: grid;
   grid-template-columns: 1fr;
   gap: 20px;
   width: 100%;
   align-items: start;
-
   @media (min-width: 1100px) {
-    grid-template-columns: 1fr 1fr; /* แบ่งพื้นที่ 50/50 ซ้ายขวาสมมาตรพอดี */
+    grid-template-columns: 1fr 1fr;
   }
 `;
 const LeftColumn = styled.div`
@@ -468,12 +470,14 @@ const BaseCard = styled.div`
   animation: ${fadeUp} 0.35s ease both;
   position: relative;
   overflow: hidden;
-  height: 100%; /* บังคับให้การ์ดขยายเต็มความสูงเท่ากัน */
+  height: 100%;
   min-height: 420px;
   &::before {
     content: "";
     position: absolute;
     inset: 0;
+    pointer-events: none;
+    z-index: 0;
     background: repeating-linear-gradient(
       to bottom,
       transparent,
@@ -481,8 +485,6 @@ const BaseCard = styled.div`
       rgba(0, 0, 0, 0.04) 3px,
       rgba(0, 0, 0, 0.04) 4px
     );
-    pointer-events: none;
-    z-index: 0;
   }
   > * {
     position: relative;
@@ -491,6 +493,7 @@ const BaseCard = styled.div`
 `;
 const TeleopCard = styled(BaseCard)``;
 const ServoCard = styled(BaseCard)``;
+const SensorCard = styled(BaseCard)``;
 
 const CardLabel = styled.h2`
   color: #ffdc7c;
@@ -526,7 +529,6 @@ const ActGroup = styled.div<{ $wide?: boolean }>`
   display: flex;
   flex-direction: column;
   justify-content: center;
-
   ${(p) =>
     p.$wide &&
     css`
@@ -548,6 +550,45 @@ const ActBtnRow = styled.div`
   grid-template-columns: 1fr auto 1fr;
   gap: 8px;
 `;
+
+
+
+const ActResetBtn = styled.button<{
+  $stop?: boolean;
+  $flash?: boolean;
+  $wide?: boolean;
+}>`
+  height: 46px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.1s;
+  font-size: ${(p) => (p.$wide ? "12px" : "18px")};
+  border: 1px solid rgba(255, 220, 124, 0.2);
+  background: ${(p) =>
+    p.$flash
+      ? p.$stop
+        ? "#555"
+        : "#ffdc7c"
+      : p.$stop
+      ? "rgba(255,255,255,0.04)"
+      : "#243a6e"};
+  color: ${(p) => (p.$flash ? (p.$stop ? "white" : "#711e1e") : "#ffdc7c")};
+  min-width: ${(p) => (p.$stop ? "44px" : "auto")};
+  &:hover {
+    background: ${(p) =>
+      p.$stop ? "rgba(255,255,255,0.1)" : "rgba(255,220,124,0.15)"};
+    border-color: rgba(255, 220, 124, 0.5);
+  }
+  &:active {
+    transform: scale(0.95);
+  }
+`;
+
 const ActBtn = styled.button<{
   $stop?: boolean;
   $flash?: boolean;
@@ -557,12 +598,12 @@ const ActBtn = styled.button<{
   border-radius: 10px;
   cursor: pointer;
   font-weight: 700;
-  font-size: ${(p) => (p.$wide ? "12px" : "18px")};
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
   transition: all 0.1s;
+  font-size: ${(p) => (p.$wide ? "12px" : "18px")};
   border: 1px solid rgba(255, 220, 124, 0.2);
   background: ${(p) =>
     p.$flash
@@ -583,7 +624,6 @@ const ActBtn = styled.button<{
     transform: scale(0.95);
   }
 `;
-
 const ServoGrid = styled.div`
   display: flex;
   flex-direction: column;
@@ -598,12 +638,10 @@ const ServoRow = styled.div`
   flex-direction: column;
   gap: 14px;
 `;
-
 const ServoMetaContainer = styled.div`
   display: flex;
   flex-direction: column;
   gap: 10px;
-
   @media (min-width: 480px) {
     flex-direction: row;
     justify-content: space-between;
@@ -632,15 +670,13 @@ const ServoAngle = styled.span`
   border-radius: 6px;
   margin-left: 10px;
 `;
-
 const PrefixTwinGrid = styled.div`
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 8px;
   width: 100%;
-
   @media (min-width: 480px) {
-    width: 260px; /* จำกัดความกว้างไม่ให้บังแถวสไลเดอร์ */
+    width: 130px;
   }
 `;
 const PrefixWrapper = styled.div`
@@ -650,9 +686,7 @@ const PrefixWrapper = styled.div`
   background: rgba(0, 0, 0, 0.3);
   border: 1px solid rgba(255, 220, 124, 0.25);
   border-radius: 8px;
-  padding: 6px 10px; /* เพิ่มพื้นที่ภายในเพื่อความใหญ่ */
-  transition: border-color 0.2s;
-
+  padding: 6px 10px;
   &:focus-within {
     border-color: #ffdc7c;
   }
@@ -665,12 +699,10 @@ const PrefixInput = styled.input`
   font-weight: 700;
   width: 100%;
   outline: none;
-  letter-spacing: 0.5px;
   &::placeholder {
     color: rgba(255, 220, 124, 0.2);
   }
 `;
-
 const ServoControlBlock = styled.div`
   display: grid;
   grid-template-columns: 1fr auto;
@@ -699,7 +731,6 @@ const ServoFill = styled.div`
   height: 100%;
   background: linear-gradient(90deg, #1677ff, #ffdc7c);
   border-radius: 4px;
-  transition: width 0.05s linear;
 `;
 const ServoSlider = styled.input`
   position: relative;
@@ -713,14 +744,13 @@ const ServoSlider = styled.input`
   margin: 0;
   &::-webkit-slider-thumb {
     -webkit-appearance: none;
-    width: 20px; /* ขยายขนาดหัวหมุนให้จับง่ายขึ้น */
+    width: 20px;
     height: 20px;
     border-radius: 50%;
     background: #ffdc7c;
     border: 2px solid #1e3271;
     box-shadow: 0 0 6px rgba(255, 220, 124, 0.5);
     cursor: grab;
-    transition: transform 0.1s;
   }
   &::-webkit-slider-thumb:active {
     transform: scale(1.25);
@@ -738,7 +768,6 @@ const ServoSendBtn = styled.button<{ $flash: boolean }>`
   border: 1px solid rgba(255, 220, 124, 0.35);
   background: ${(p) => (p.$flash ? "#ffdc7c" : "rgba(255,220,124,0.08)")};
   color: ${(p) => (p.$flash ? "#1e3271" : "#ffdc7c")};
-  transition: all 0.1s;
   &:hover {
     background: rgba(255, 220, 124, 0.18);
     border-color: #ffdc7c;
@@ -746,4 +775,34 @@ const ServoSendBtn = styled.button<{ $flash: boolean }>`
   &:active {
     transform: scale(0.93);
   }
+`;
+
+// STYLED SENSORS
+const SensorMiniGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 10px;
+`;
+const SensorIndicator = styled.div<{ $active: boolean }>`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: ${(p) =>
+    p.$active ? "rgba(74, 222, 128, 0.15)" : "rgba(255, 255, 255, 0.03)"};
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid
+    ${(p) => (p.$active ? "#4ade80" : "rgba(255, 255, 255, 0.05)")};
+`;
+const IndicatorDot = styled.div<{ $active: boolean }>`
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: ${(p) => (p.$active ? "#4ade80" : "#555")};
+  box-shadow: ${(p) => (p.$active ? "0 0 8px #4ade80" : "none")};
+`;
+const IndicatorLabel = styled.span`
+  font-size: 11px;
+  color: #fff;
+  white-space: nowrap;
 `;

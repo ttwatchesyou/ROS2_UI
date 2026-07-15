@@ -1,13 +1,14 @@
-"use client";
-
 import Head from "next/head";
 import React, { useState, useEffect, useRef } from "react";
 import styled, { keyframes, css } from "styled-components";
 import {
   PlayCircleOutlined,
-  StopFilled,
   RocketOutlined,
+  CameraOutlined,
+  CompassOutlined,
+  SettingOutlined,
 } from "@ant-design/icons";
+import { useTelemetry } from "../../hook/useTelemetry";
 
 export const API_BASE = process.env.NEXT_PUBLIC_ROBOT_API;
 export const STREAM_URL = process.env.NEXT_PUBLIC_STREAM_URL;
@@ -65,20 +66,11 @@ interface MissionStatus {
 
 const pulse = keyframes`0%,100%{opacity:1}50%{opacity:.35}`;
 const fadeUp = keyframes`from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}`;
-const blink = keyframes`0%,100%{opacity:1}50%{opacity:0}`;
 const scanPulse = keyframes`0%{box-shadow:0 0 0 0 rgba(0,212,170,0.4)}70%{box-shadow:0 0 0 8px rgba(0,212,170,0)}100%{box-shadow:0 0 0 0 rgba(0,212,170,0)}`;
 
-function OdomCanvas({
-  odom,
-  trail,
-  savedTrail,
-  mode,
-}: {
-  odom: OdomState;
-  trail: { x: number; y: number }[];
-  savedTrail: { x: number; y: number }[] | null;
-  mode: number;
-}) {
+// ── Components ─────────────────────────────────────────────────────────────
+
+function OdomCanvas({ odom, trail, savedTrail, mode }: any) {
   const ref = useRef<HTMLCanvasElement>(null);
   const [viewState, setViewState] = useState({
     scale: 1.0,
@@ -88,66 +80,47 @@ function OdomCanvas({
   const isDragging = useRef(false);
   const lastPos = useRef({ x: 0, y: 0 });
 
-  const handleWheel = (e: React.WheelEvent) => {
+  const handleWheel = (e: React.WheelEvent) =>
     setViewState((prev) => ({
       ...prev,
       scale: Math.max(0.1, Math.min(prev.scale - e.deltaY * 0.001, 5.0)),
     }));
-  };
-
   const handleMouseDown = (e: React.MouseEvent) => {
     isDragging.current = true;
     lastPos.current = { x: e.clientX, y: e.clientY };
   };
-
   const handleMouseMove = (e: React.MouseEvent) => {
     if (!isDragging.current) return;
-    const dx = e.clientX - lastPos.current.x;
-    const dy = e.clientY - lastPos.current.y;
-
     setViewState((prev) => ({
       ...prev,
-      offsetX: prev.offsetX + dx,
-      offsetY: prev.offsetY + dy,
+      offsetX: prev.offsetX + (e.clientX - lastPos.current.x),
+      offsetY: prev.offsetY + (e.clientY - lastPos.current.y),
     }));
-
     lastPos.current = { x: e.clientX, y: e.clientY };
   };
+  const handleMouseUp = () => (isDragging.current = false);
 
-  const handleMouseUp = () => {
-    isDragging.current = false;
-  };
   const handleTouchStart = (e: React.TouchEvent) => {
     isDragging.current = true;
     lastPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
   };
-
   const handleTouchMove = (e: React.TouchEvent) => {
     if (!isDragging.current) return;
     e.preventDefault();
-
-    const dx = e.touches[0].clientX - lastPos.current.x;
-    const dy = e.touches[0].clientY - lastPos.current.y;
-
     setViewState((prev) => ({
       ...prev,
-      offsetX: prev.offsetX + dx,
-      offsetY: prev.offsetY + dy,
+      offsetX: prev.offsetX + (e.touches[0].clientX - lastPos.current.x),
+      offsetY: prev.offsetY + (e.touches[0].clientY - lastPos.current.y),
     }));
-
     lastPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
   };
-
-  const handleTouchEnd = () => {
-    isDragging.current = false;
-  };
+  const handleTouchEnd = () => (isDragging.current = false);
 
   useEffect(() => {
     const c = ref.current;
     if (!c) return;
     const ctx = c.getContext("2d");
     if (!ctx) return;
-
     const W = c.clientWidth || 300,
       H = c.clientHeight || 300;
     c.width = W;
@@ -156,7 +129,6 @@ function OdomCanvas({
     const VIEW_RANGE_METERS = 8;
     const BASE_SCALE = Math.min(W, H) / VIEW_RANGE_METERS;
     const SCALE = BASE_SCALE * viewState.scale;
-
     const cx = W / 2 - odom.x * SCALE + viewState.offsetX;
     const cy = H / 2 + odom.y * SCALE + viewState.offsetY;
 
@@ -164,11 +136,10 @@ function OdomCanvas({
     ctx.fillRect(0, 0, W, H);
 
     const gridStep = 1;
-    const startX = Math.floor((0 - cx) / SCALE);
-    const endX = Math.ceil((W - cx) / SCALE);
-
-    const startY = Math.floor((cy - H) / SCALE);
-    const endY = Math.ceil(cy / SCALE);
+    const startX = Math.floor((0 - cx) / SCALE),
+      endX = Math.ceil((W - cx) / SCALE);
+    const startY = Math.floor((cy - H) / SCALE),
+      endY = Math.ceil(cy / SCALE);
 
     for (let gx = startX; gx <= endX; gx += gridStep) {
       const px = cx + gx * SCALE;
@@ -189,110 +160,73 @@ function OdomCanvas({
 
     rectZones.forEach((zone: any) => {
       const finalColor = zone.color || C.accent;
-      const zx = cx + zone.x * SCALE;
-      const zy = cy - zone.y * SCALE;
-      const zw = zone.w * SCALE;
-      const zh = zone.h * SCALE;
-
-      ctx.fillStyle = finalColor + "22"; 
-      ctx.strokeStyle = finalColor; 
+      const zx = cx + zone.x * SCALE,
+        zy = cy - zone.y * SCALE,
+        zw = zone.w * SCALE,
+        zh = zone.h * SCALE;
+      ctx.fillStyle = finalColor + "22";
+      ctx.strokeStyle = finalColor;
       ctx.lineWidth = 2;
-
       ctx.fillRect(zx, zy - zh, zw, zh);
       ctx.strokeRect(zx, zy - zh, zw, zh);
     });
 
-    // วาดเส้นประวัติ (Saved Trail) - ถ้ามี
     if (savedTrail && savedTrail.length > 1) {
       ctx.beginPath();
-      ctx.strokeStyle = C.accent2; // สีส้ม
+      ctx.strokeStyle = C.accent2;
       ctx.lineWidth = 2;
       ctx.lineJoin = "round";
       ctx.lineCap = "round";
-      ctx.setLineDash([6, 6]); // เส้นประ
-
-      savedTrail.forEach((point, index) => {
-        let mapX = point.x;
-        let mapY = point.y;
-        if (mode === 2) {
-          mapX = -point.x - 7;
-          mapY = -point.y;
-        }
-        const tx = cx + mapX * SCALE;
-        const ty = cy - mapY * SCALE;
-        if (index === 0) ctx.moveTo(tx, ty);
-        else ctx.lineTo(tx, ty);
+      ctx.setLineDash([6, 6]);
+      savedTrail.forEach((point: any, index: number) => {
+        let mapX = mode === 2 ? -point.x - 7 : point.x;
+        let mapY = mode === 2 ? -point.y : point.y;
+        const tx = cx + mapX * SCALE,
+          ty = cy - mapY * SCALE;
+        index === 0 ? ctx.moveTo(tx, ty) : ctx.lineTo(tx, ty);
       });
       ctx.stroke();
-      ctx.setLineDash([]); 
+      ctx.setLineDash([]);
     }
 
-    // วาดเส้นวิ่งปัจจุบัน (Current Trail)
     if (trail && trail.length > 1) {
       ctx.beginPath();
       ctx.strokeStyle = "#00ffee";
       ctx.lineWidth = 2;
       ctx.lineJoin = "round";
       ctx.lineCap = "round";
-      ctx.setLineDash([]);
-
-      trail.forEach((point, index) => {
-        let mapX = point.x;
-        let mapY = point.y;
-
-        if (mode === 2) {
-          mapX = -point.x - 7;
-          mapY = -point.y;
-        }
-
-        const tx = cx + mapX * SCALE;
-        const ty = cy - mapY * SCALE;
-
-        if (index === 0) {
-          ctx.moveTo(tx, ty);
-        } else {
-          ctx.lineTo(tx, ty);
-        }
+      trail.forEach((point: any, index: number) => {
+        let mapX = mode === 2 ? -point.x - 7 : point.x;
+        let mapY = mode === 2 ? -point.y : point.y;
+        const tx = cx + mapX * SCALE,
+          ty = cy - mapY * SCALE;
+        index === 0 ? ctx.moveTo(tx, ty) : ctx.lineTo(tx, ty);
       });
       ctx.stroke();
     }
 
-    let mapX = odom.x;
-    let mapY = odom.y;
-
-    if (mode === 2) {
-      mapX = -odom.x - 7;
-      mapY = -odom.y;
-    }
-
-    const px2 = cx + mapX * SCALE;
-    const py2 = cy - mapY * SCALE;
+    let mapX = mode === 2 ? -odom.x - 7 : odom.x;
+    let mapY = mode === 2 ? -odom.y : odom.y;
+    const px2 = cx + mapX * SCALE,
+      py2 = cy - mapY * SCALE;
 
     ctx.save();
     ctx.translate(px2, py2);
-
-    let rotationAngle = odom.yaw;
-    if (mode === 2) {
-      rotationAngle = -odom.yaw + Math.PI;
-    }
+    let rotationAngle = mode === 2 ? -odom.yaw + Math.PI : odom.yaw;
     ctx.rotate(-rotationAngle);
-    const rectW = 0.51 * SCALE;
-    const rectH = 0.52 * SCALE;
 
+    const rectW = 0.51 * SCALE,
+      rectH = 0.52 * SCALE;
     ctx.fillStyle = "#FF69B4";
     ctx.fillRect(-rectW / 2, -rectH / 2, rectW, rectH);
-
     ctx.strokeStyle = "#FFFFFF";
     ctx.lineWidth = 1;
     ctx.strokeRect(-rectW / 2, -rectH / 2, rectW, rectH);
-
-    ctx.strokeStyle = "#FFFFFF";
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(0, 0);
     ctx.lineTo(rectH * 0.8, 0);
     ctx.stroke();
-
     ctx.fillStyle = "#FFFFFF";
     ctx.beginPath();
     ctx.moveTo(rectH * 0.8, 0);
@@ -300,12 +234,18 @@ function OdomCanvas({
     ctx.lineTo(rectH * 0.8 - 7, 5);
     ctx.closePath();
     ctx.fill();
-
     ctx.restore();
   }, [odom, trail, savedTrail, mode, viewState]);
 
   return (
-    <div style={{ position: "relative", flex: 1, overflow: "hidden" }}>
+    <div
+      style={{
+        position: "relative",
+        flex: 1,
+        minHeight: "350px",
+        overflow: "hidden",
+      }}
+    >
       <OdomCanvasEl
         ref={ref}
         onWheel={handleWheel}
@@ -324,16 +264,59 @@ function OdomCanvas({
       <ResetViewBtn
         onClick={() => setViewState({ scale: 1, offsetX: 0, offsetY: 0 })}
       >
-        ⌖ RESET VIEW
+        ⌖ RESET
       </ResetViewBtn>
     </div>
   );
 }
 
-function DetectedObjectsCard() {
-  const [log, setLog] = useState<DetectEntry[]>([]);
+function SensorStatusCard({ sensorsData }: { sensorsData: Record<string, number> }) {
+  const SENSOR_CONFIG: Record<string, { label: string; activeValue: number }> = {
+    LimitBoxBUp: { label: "กล่อง บน", activeValue: 0 },       
+    LimitBoxBDw: { label: "กล่อง ล่าง", activeValue: 0 },
+    LimitBoxBOut: { label: "กล่อง ออก", activeValue: 0 },
+    LimitBoxBIn: { label: "กล่อง เข้า", activeValue: 0 },
+    SW_1: { label: "สวิตช์ 1", activeValue: 0 },                   
+    bottleL_B_DW: { label: "ขวดซ้าย ล่าง", activeValue: 0 },
+    bottleR_B_DW: { label: "ขวดขวา ล่าง", activeValue: 0 },
+    bottleL_Check: { label: "ขวดขึ้นซ้าย", activeValue: 0 }, 
+    bottleR_Check: { label: "ขวดขึ้นขวา", activeValue: 0 }, 
+    SensorCheckBoxUp: { label: "เซนเซอร์กล่อง", activeValue: 0 },
+  };
+
+  return (
+   <Card>
+      <CardHeader>HARDWARE SENSORS</CardHeader>
+      <div style={{ padding: "14px" }}>
+        <SensorMiniGrid>
+          {Object.keys(SENSOR_CONFIG).map((key) => {
+            const config = SENSOR_CONFIG[key];
+            const isActive = sensorsData[key] === config.activeValue;
+            
+            return (
+              <SensorIndicator key={key} $active={isActive}>
+                <IndicatorDot $active={isActive} />
+                <IndicatorLabel>{config.label}</IndicatorLabel>
+              </SensorIndicator>
+            );
+          })}
+        </SensorMiniGrid>
+      </div>
+    </Card>
+  );
+}
+
+function MissionStatusCard({ mission }: { mission: MissionStatus | null }) {
+  const colorLabel = mission?.team_color ?? "NONE";
+  const stepNow = mission?.mission_step ?? 0;
+  const totalSteps = mission?.mission_total_steps ?? 0;
+  const isRunning = mission?.mission_running ?? false;
+  const gameNum = mission?.current_game ?? 0;
+  const chairCount = mission?.chair_count ?? 0;
+  const progress =
+    totalSteps > 0 ? Math.min((stepNow) * 100, 100) : 0;
+
   const [latest, setLatest] = useState<string>("");
-  const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let alive = true;
@@ -342,14 +325,7 @@ function DetectedObjectsCard() {
         const r = await fetch(`${API_BASE}/api/detected_objects`);
         if (!r.ok) return;
         const d = await r.json();
-        if (!alive) return;
-        setLatest(d.latest ?? "");
-        const incoming: DetectEntry[] = d.log ?? [];
-        setLog((prev) => {
-          if (incoming.length === prev.length) return prev;
-          const newEntries = incoming.slice(prev.length);
-          return [...prev, ...newEntries].slice(-200);
-        });
+        if (alive) setLatest(d.latest ?? "");
       } catch {}
     };
     const id = setInterval(poll, DETECT_POLL_MS);
@@ -359,11 +335,6 @@ function DetectedObjectsCard() {
       clearInterval(id);
     };
   }, []);
-
-  useEffect(() => {
-    if (scrollRef.current)
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [log]);
 
   const colorize = (msg: string): string => {
     if (!msg) return C.muted;
@@ -389,106 +360,8 @@ function DetectedObjectsCard() {
     return C.accent;
   };
 
-  const hasObject = !!(
-    latest &&
-    latest.toLowerCase() !== "none" &&
-    latest.trim() !== ""
-  );
-
   return (
-    <DetectCard>
-      <DetectHeader>
-        <span>DETECTED OBJECTS</span>
-        <DetectHeaderRight>
-          <TopicBadge>/detected_objects</TopicBadge>
-          
-        </DetectHeaderRight>
-      </DetectHeader>
-      {/* <LatestWrap>
-        <LatestLabel>LATEST</LatestLabel>
-        <LatestValue $color={colorize(latest)}>{latest || "—"}</LatestValue>
-      </LatestWrap> */}
-      <LogLabel>LOG</LogLabel>
-      <LogScroll ref={scrollRef}>
-        {log.length === 0 ? (
-          <LogEmpty>Waiting for data…</LogEmpty>
-        ) : (
-          [...log].reverse().map((e, i) => (
-            <LogLine key={i} $color={colorize(e.msg)}>
-              <LogTs>[{e.ts}]</LogTs>
-              <LogMsg>{e.msg || "—"}</LogMsg>
-            </LogLine>
-          ))
-        )}
-      </LogScroll>
-    </DetectCard>
-  );
-}
-
-function MissionStatusCard({ mission }: { mission: MissionStatus | null }) {
-  const colorLabel = mission?.team_color ?? "NONE";
-  const stepNow = mission?.mission_step ?? 0;
-  const totalSteps = mission?.mission_total_steps ?? 0;
-  const isRunning = mission?.mission_running ?? false;
-  const gameNum = mission?.current_game ?? 0;
-  const chairCount = mission?.chair_count ?? 0
-  const progress =
-    totalSteps > 0 ? Math.min((stepNow / totalSteps) * 100, 100) : 0;
-
-  const [log, setLog] = useState<DetectEntry[]>([]);
-  const [latest, setLatest] = useState<string>("");
-
-  useEffect(() => {
-    let alive = true;
-    const poll = async () => {
-      try {
-        const r = await fetch(`${API_BASE}/api/detected_objects`);
-        if (!r.ok) return;
-        const d = await r.json();
-        if (!alive) return;
-        setLatest(d.latest ?? "");
-        const incoming: DetectEntry[] = d.log ?? [];
-        setLog((prev) => {
-          if (incoming.length === prev.length) return prev;
-          const newEntries = incoming.slice(prev.length);
-          return [...prev, ...newEntries].slice(-200);
-        });
-      } catch {}
-    };
-    const id = setInterval(poll, DETECT_POLL_MS);
-    poll();
-    return () => {
-      alive = false;
-      clearInterval(id);
-    };
-  }, []);
-
-   const colorize = (msg: string): string => {
-    if (!msg) return C.muted;
-    const lower = msg.toLowerCase();
-    if (
-      lower.includes("person") ||
-      lower.includes("human") ||
-      lower.includes("face")
-    )
-      return "#ff6b35";
-    if (
-      lower.includes("none") ||
-      lower.includes("no object") ||
-      msg.trim() === ""
-    )
-      return C.muted;
-    if (
-      lower.includes("bottle") ||
-      lower.includes("cup") ||
-      lower.includes("box")
-    )
-      return "#58a6ff";
-    return C.accent;
-  };
-  
-  return (
-    <MissionCard>
+    <Card>
       <MCardHeader>
         <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <RocketOutlined /> MISSION STATUS
@@ -529,10 +402,8 @@ function MissionStatusCard({ mission }: { mission: MissionStatus | null }) {
           <MInfoLabel>STEP</MInfoLabel>
           <MInfoValue $color={isRunning ? C.accent : C.muted}>
             {stepNow}
-            {totalSteps > 0 ? ` / ${totalSteps}` : ""}
           </MInfoValue>
         </MInfoBox>
-
         <MInfoDivider />
         <MInfoBox>
           <MInfoLabel>CHAIRS</MInfoLabel>
@@ -540,7 +411,6 @@ function MissionStatusCard({ mission }: { mission: MissionStatus | null }) {
             {chairCount > 0 ? chairCount : "0"}
           </MInfoValue>
         </MInfoBox>
-
       </MInfoRow>
 
       {totalSteps > 0 && (
@@ -563,28 +433,36 @@ function MissionStatusCard({ mission }: { mission: MissionStatus | null }) {
           {totalSteps > 20 && <StepMore>+{totalSteps - 20}</StepMore>}
         </StepBubbleRow>
       )}
-        <LatestWrap>
-        <LatestLabel>LATEST</LatestLabel>
+
+      <LatestWrap>
+        <LatestLabel>LATEST DETECTED OBJECT</LatestLabel>
         <LatestValue $color={colorize(latest)}>{latest || "—"}</LatestValue>
       </LatestWrap>
-    </MissionCard>
+    </Card>
   );
 }
+
+// ── Main Page Component ──────────────────────────────────────────────────
 
 export default function TelemetryDashboard() {
   const [activeMode, setActiveMode] = useState(1);
   const [data, setData] = useState<any>(null);
   const [ros, setRos] = useState<"online" | "offline">("offline");
   const [odom, setOdom] = useState<OdomState>({ x: 0, y: 0, yaw: 0 });
-  
+  const { telemetry } = useTelemetry(300);
+  const sensorsData = telemetry?.arduino_sensors ?? {};
+
   const [trail, setTrail] = useState<{ x: number; y: number }[]>([]);
-  const [savedTrails, setSavedTrails] = useState<{name: string, data: {x:number, y:number}[]}[]>([]);
+  const [savedTrails, setSavedTrails] = useState<
+    { name: string; data: { x: number; y: number }[] }[]
+  >([]);
   const [activeLogIndex, setActiveLogIndex] = useState<number | null>(null);
 
   const [selectedColor, setSelectedColor] = useState<0 | 1 | null>(null);
   const [selectedGame, setSelectedGame] = useState<number | null>(null);
   const [mission, setMission] = useState<MissionStatus | null>(null);
-  
+
+  const [isResetting, setIsResetting] = useState(false);
   const prevStepRef = useRef<number>(0);
 
   async function post(path: string, body: Record<string, unknown> = {}) {
@@ -610,9 +488,17 @@ export default function TelemetryDashboard() {
     post("/api/cmd/program_game", { game });
   };
   const onStart = () => post("/api/cmd/program_command", { command: 1 });
-  const onEStop = () => post("/api/cmd/estop");
 
-  // Fetch Mission & Auto-Reset Logic
+  const onResetController = async () => {
+    if (
+      !window.confirm("คุณแน่ใจหรือไม่ที่จะ Restart ระบบ SudSakhon Controller?")
+    )
+      return;
+    setIsResetting(true);
+    await post("/api/restart", { service: "sudsakhon_main.service" });
+    setTimeout(() => setIsResetting(false), 2000);
+  };
+
   useEffect(() => {
     let alive = true;
     const poll = async () => {
@@ -622,14 +508,11 @@ export default function TelemetryDashboard() {
         const d: MissionStatus = await r.json();
         if (alive) {
           setMission(d);
-          
-          // ระบบ Auto-Reset เมื่อทำงานจนครบทุก Step 
           if (
             d.mission_step === d.mission_total_steps &&
             d.mission_total_steps > 0 &&
             prevStepRef.current !== d.mission_step
           ) {
-            // เมื่อเพิ่งเปลี่ยนสถานะเป็นทำครบทั้งหมด ให้ Reset ปุ่ม
             setSelectedColor(null);
             setSelectedGame(null);
             setActiveMode(1);
@@ -646,7 +529,6 @@ export default function TelemetryDashboard() {
     };
   }, []);
 
-  // Fetch Telemetry & Map Trail
   useEffect(() => {
     let alive = true;
     const poll = async () => {
@@ -660,7 +542,7 @@ export default function TelemetryDashboard() {
         setOdom({ x: d.pose_x ?? 0, y: d.pose_y ?? 0, yaw: d.yaw ?? 0 });
         setTrail((p) => {
           const n = [...p, { x: d.pose_x ?? 0, y: d.pose_y ?? 0 }];
-          return n.length > 5000 ? n.slice(-5000) : n; // เก็บมากสุด 5000 จุดเพื่อรองรับการวาดเส้นยาวยาวๆ
+          return n.length > 5000 ? n.slice(-5000) : n;
         });
       } catch {
         if (alive) setRos("offline");
@@ -676,23 +558,25 @@ export default function TelemetryDashboard() {
 
   const handleSaveTrail = () => {
     if (trail.length === 0) return;
-    const newLog = {
-      name: `Run ${new Date().toLocaleTimeString('th-TH')}`,
-      data: [...trail],
-    };
-    setSavedTrails((prev) => [...prev, newLog]);
+    setSavedTrails((prev) => [
+      ...prev,
+      {
+        name: `Run ${new Date().toLocaleTimeString("th-TH")}`,
+        data: [...trail],
+      },
+    ]);
   };
 
   const handleDeleteLog = (idx: number) => {
     setSavedTrails((prev) => prev.filter((_, i) => i !== idx));
     if (activeLogIndex === idx) setActiveLogIndex(null);
-    else if (activeLogIndex !== null && activeLogIndex > idx) {
+    else if (activeLogIndex !== null && activeLogIndex > idx)
       setActiveLogIndex(activeLogIndex - 1);
-    }
   };
 
   const yawDeg = ((odom.yaw * 180) / Math.PI + 360) % 360;
-  const activeSavedTrailData = activeLogIndex !== null ? savedTrails[activeLogIndex].data : null;
+  const activeSavedTrailData =
+    activeLogIndex !== null ? savedTrails[activeLogIndex].data : null;
 
   return (
     <>
@@ -703,24 +587,27 @@ export default function TelemetryDashboard() {
       </Head>
       <Root>
         <StatusBar>
-          <STitle>● ROBOT TELEMETRY</STitle>
+          <STitle>● ROBOT TELEMETRY DASHBOARD</STitle>
           <RosStatus $online={ros === "online"}>
             {ros === "online" ? "● ROS ONLINE" : "● ROS OFFLINE"}
           </RosStatus>
         </StatusBar>
 
         <MainGrid>
-          <LeftCol>
-            <Card style={{ flex: 1 }}>
+          {/* 📍 LEFT COLUMN : Map & Settings */}
+          <Column>
+            <Card>
               <CardHeader>
-                <HeaderLeft>ODOMETRY MAP</HeaderLeft>
+                <HeaderLeft>
+                  <CompassOutlined /> ODOMETRY MAP
+                </HeaderLeft>
                 <ClearBtn onClick={() => setTrail([])}>🗑 CLEAR TRAIL</ClearBtn>
               </CardHeader>
-              <OdomCanvas 
-                odom={odom} 
-                trail={trail} 
+              <OdomCanvas
+                odom={odom}
+                trail={trail}
                 savedTrail={activeSavedTrailData}
-                mode={activeMode} 
+                mode={activeMode}
               />
               <OdomFooter>
                 <OC>
@@ -733,41 +620,72 @@ export default function TelemetryDashboard() {
                 </OC>
                 <OC>θ: {yawDeg.toFixed(1)}°</OC>
               </OdomFooter>
-              
-              {/* --- ระบบ MAP LOGS --- */}
-              <CardHeader style={{ borderTop: `1px solid ${C.border}`, marginTop: '8px' }}>
-                <HeaderLeft>MAP LOGS</HeaderLeft>
-                <ActionBtn style={{height: '24px', width: 'auto', padding: '0 12px', fontSize: '10px'}} onClick={handleSaveTrail}>
-                  💾 SAVE CURRENT
-                </ActionBtn>
-              </CardHeader>
-              <div style={{ padding: '8px 14px' }}>
-                {savedTrails.length === 0 && <LogEmpty>No saved trails.</LogEmpty>}
+
+              <SectionDivider>MAP LOGS</SectionDivider>
+              <div style={{ padding: "8px 14px 14px" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "flex-end",
+                    marginBottom: 8,
+                  }}
+                >
+                  <ActionBtn
+                    style={{
+                      height: "26px",
+                      width: "auto",
+                      padding: "0 12px",
+                      fontSize: "10px",
+                    }}
+                    onClick={handleSaveTrail}
+                  >
+                    💾 SAVE CURRENT
+                  </ActionBtn>
+                </div>
+                {savedTrails.length === 0 && (
+                  <LogEmpty>No saved trails.</LogEmpty>
+                )}
                 {savedTrails.map((st, i) => (
                   <TrailLogBox key={i}>
-                    <span>{st.name} <span style={{color: C.muted}}>({st.data.length} pts)</span></span>
-                    <div style={{display: 'flex', gap: '8px'}}>
-                      <ClearBtn 
-                        style={{ 
-                          background: activeLogIndex === i ? C.accent : 'transparent',
+                    <span>
+                      {st.name}{" "}
+                      <span style={{ color: C.muted }}>
+                        ({st.data.length} pts)
+                      </span>
+                    </span>
+                    <div style={{ display: "flex", gap: "8px" }}>
+                      <ClearBtn
+                        style={{
+                          background:
+                            activeLogIndex === i ? C.accent : "transparent",
                           color: activeLogIndex === i ? C.bg : C.text,
-                          border: `1px solid ${C.accent}`
-                        }} 
-                        onClick={() => setActiveLogIndex(activeLogIndex === i ? null : i)}
+                          border: `1px solid ${C.accent}`,
+                        }}
+                        onClick={() =>
+                          setActiveLogIndex(activeLogIndex === i ? null : i)
+                        }
                       >
-                        {activeLogIndex === i ? 'HIDE' : 'VIEW'}
+                        {activeLogIndex === i ? "HIDE" : "VIEW"}
                       </ClearBtn>
-                      <ClearBtn style={{ color: C.danger, border: `1px solid ${C.danger}44` }} onClick={() => handleDeleteLog(i)}>
+                      <ClearBtn
+                        style={{
+                          color: C.danger,
+                          border: `1px solid ${C.danger}44`,
+                        }}
+                        onClick={() => handleDeleteLog(i)}
+                      >
                         DELETE
                       </ClearBtn>
                     </div>
                   </TrailLogBox>
                 ))}
               </div>
-              {/* ------------------- */}
+            </Card>
 
-              <CardHeader style={{ borderTop: `1px solid ${C.border}`}}>
-                <RocketOutlined /> MISSION SETTINGS
+            {/* 📍 ย้าย MISSION SETTINGS มาไว้ฝั่งซ้าย */}
+            <Card>
+              <CardHeader>
+                <SettingOutlined /> MISSION SETTINGS
               </CardHeader>
               <MissionBody>
                 <SectionLabel>TEAM COLOR</SectionLabel>
@@ -806,21 +724,29 @@ export default function TelemetryDashboard() {
                     </GameBtn>
                   ))}
                 </GameGrid>
+
                 <ActionRowGrid style={{ marginTop: 14 }}>
-                  <ActionBtn onClick={onStart}>START</ActionBtn>
+                  <ActionBtn onClick={onStart}>
+                    <PlayCircleOutlined /> START MISSION
+                  </ActionBtn>
+                  <ResetCtrlBtn
+                    onClick={onResetController}
+                    disabled={isResetting}
+                  >
+                    {isResetting ? "🔄 RESTARTING..." : "↻ RESTART CONTROLLER"}
+                  </ResetCtrlBtn>
                 </ActionRowGrid>
-                {/* <EStopSection>
-                  <EStopButton onClick={onEStop}>
-                    <StopFilled style={{ fontSize: "1.5rem" }} /> E-STOP
-                  </EStopButton>
-                </EStopSection> */}
               </MissionBody>
             </Card>
-          </LeftCol>
-          <RightCol>
+          </Column>
+
+          {/* 📍 RIGHT COLUMN : Vision, Sensors & Mission Control */}
+          <Column>
             <Card>
               <CardHeader>
-                AI VISION
+                <span>
+                  <CameraOutlined /> AI VISION
+                </span>
                 <span
                   style={{
                     color: C.accent3,
@@ -835,9 +761,12 @@ export default function TelemetryDashboard() {
                 <img src={STREAM_URL} alt="live" />
               </StreamWrap>
             </Card>
+
+            {/* 📍 ย้าย HARDWARE SENSORS มาไว้ฝั่งขวา */}
+            <SensorStatusCard sensorsData={sensorsData} />
+
             <MissionStatusCard mission={mission} />
-            <DetectedObjectsCard />
-          </RightCol>
+          </Column>
         </MainGrid>
 
         {!data && <Loader>INITIALIZING TELEMETRY…</Loader>}
@@ -846,14 +775,16 @@ export default function TelemetryDashboard() {
   );
 }
 
+// ── Styled Components ──────────────────────────────────────────────────────
+
 const Root = styled.div`
   min-height: 100vh;
   background: #fffbde;
-  padding: 12px;
+  padding: 16px;
   margin-top: 80px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 16px;
   box-sizing: border-box;
   font-family: "Consolas", "Courier New", monospace;
 `;
@@ -862,49 +793,36 @@ const StatusBar = styled.div`
   align-items: center;
   justify-content: space-between;
   background: ${C.panel};
-  border-radius: 10px;
-  padding: 8px 16px;
+  border-radius: 12px;
+  padding: 10px 20px;
   border: 1px solid ${C.border};
 `;
 const STitle = styled.span`
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   color: ${C.text};
   letter-spacing: 2px;
 `;
-const RosStatus = styled.span<{ $online: boolean }>`
-  font-size: 10px;
-  letter-spacing: 1px;
-  color: ${(p) => (p.$online ? C.success : C.danger)};
-  ${(p) =>
-    p.$online &&
-    css`
-      animation: ${pulse} 3s ease-in-out infinite;
-    `}
-`;
 const MainGrid = styled.div`
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  gap: 16px;
   flex: 1;
-  min-height: 0;
-  @media (max-width: 860px) {
+  @media (max-width: 960px) {
     grid-template-columns: 1fr;
   }
 `;
-const LeftCol = styled.div`
+const Column = styled.div`
   display: flex;
   flex-direction: column;
-`;
-const RightCol = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+  gap: 16px;
 `;
 const Card = styled.div`
   background: ${C.panel};
   border-radius: 12px;
   border: 1px solid ${C.border};
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   animation: ${fadeUp} 0.3s ease;
 `;
@@ -912,22 +830,31 @@ const CardHeader = styled.div`
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 9px 14px;
-  font-size: 10px;
+  padding: 10px 16px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 1.8px;
   color: ${C.text};
+  border-bottom: 1px solid ${C.border};
+  background: rgba(0, 0, 0, 0.15);
+`;
+const SectionDivider = styled.div`
+  padding: 8px 16px;
+  font-size: 10px;
+  font-weight: bold;
+  color: ${C.text};
+  background: rgba(0, 0, 0, 0.1);
+  border-top: 1px solid ${C.border};
   border-bottom: 1px solid ${C.border};
 `;
 const HeaderLeft = styled.div`
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 `;
 const StreamWrap = styled.div`
   aspect-ratio: 16 / 9;
   background: #000;
-  overflow: hidden;
   img {
     width: 100%;
     height: 100%;
@@ -938,8 +865,7 @@ const StreamWrap = styled.div`
 const OdomCanvasEl = styled.canvas`
   display: block;
   width: 100%;
-  min-height: 180px;
-  flex: 1;
+  height: 100%;
   background: ${C.bg};
 `;
 const ResetViewBtn = styled.button`
@@ -955,7 +881,7 @@ const ResetViewBtn = styled.button`
   font-weight: 700;
   cursor: pointer;
   z-index: 5;
-  box-shadow: 0 4px 10px rgba(0,0,0,0.4);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
   transition: all 0.2s;
   &:hover {
     background: ${C.accent};
@@ -964,12 +890,13 @@ const ResetViewBtn = styled.button`
 `;
 const OdomFooter = styled.div`
   display: flex;
-  gap: 16px;
-  padding: 7px 14px;
+  gap: 20px;
+  padding: 10px 16px;
   border-top: 1px solid ${C.border};
 `;
 const OC = styled.span`
-  font-size: 18px;
+  font-size: 16px;
+  font-weight: bold;
   color: ${C.accent};
 `;
 const ClearBtn = styled.button`
@@ -992,23 +919,23 @@ const TrailLogBox = styled.div`
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 6px 0;
+  padding: 8px 0;
   border-bottom: 1px dashed ${C.border};
-  font-size: 11px;
+  font-size: 12px;
   color: ${C.text};
   &:last-child {
     border-bottom: none;
   }
 `;
 const MissionBody = styled.div`
-  padding: 14px;
+  padding: 16px;
   display: flex;
   flex-direction: column;
   gap: 8px;
 `;
 const SectionLabel = styled.div`
   color: rgba(255, 220, 124, 0.6);
-  font-size: 0.65rem;
+  font-size: 0.7rem;
   letter-spacing: 1px;
   margin-bottom: 4px;
 `;
@@ -1029,21 +956,17 @@ const ToggleBtn = styled.button<{ $active: boolean; $variant: "red" | "blue" }>`
       ? "#1677ff"
       : "#1b2a4a"};
   transition: all 0.15s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
 `;
 const GameGrid = styled.div`
   display: grid;
   grid-template-columns: repeat(5, 1fr);
-  gap: 5px;
+  gap: 6px;
 `;
 const GameBtn = styled.button<{ $active: boolean }>`
-  height: 36px;
+  height: 40px;
   border-radius: 8px;
   cursor: pointer;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: bold;
   background: ${(p) => (p.$active ? "#ffdc7c" : "rgba(255,255,255,0.05)")};
   color: ${(p) => (p.$active ? "#1e3271" : "#ffdc7c")};
@@ -1054,12 +977,12 @@ const GameBtn = styled.button<{ $active: boolean }>`
   }
 `;
 const ActionRowGrid = styled.div`
-  display: grid;
+  display: flex;
   grid-template-columns: 1fr;
-  gap: 8px;
+  gap: 10px;
 `;
 const ActionBtn = styled.button<{ $danger?: boolean }>`
-  height: 46px;
+  height: 48px;
   font-weight: bold;
   border-radius: 10px;
   width: 100%;
@@ -1077,29 +1000,56 @@ const ActionBtn = styled.button<{ $danger?: boolean }>`
     opacity: 0.85;
   }
 `;
-const EStopSection = styled.div`
-  display: flex;
-  justify-content: center;
-  padding-top: 10px;
-`;
-const EStopButton = styled.button`
-  width: 90px;
-  height: 90px;
-  border-radius: 50%;
-  background: #ff4d4f;
-  color: white;
-  border: 4px solid #820014;
-  font-weight: 900;
-  font-size: 0.7rem;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  animation: ${pulse} 2s infinite;
-  &:active {
-    transform: scale(0.93);
+const ResetCtrlBtn = styled(ActionBtn)`
+  background: #f87171;
+  border: 1px solid #f87171;
+  color: #ffffff;
+  &:hover {
+    background: rgba(248, 113, 113, 0.1);
   }
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+`;
+const SensorMiniGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 10px;
+`;
+const SensorIndicator = styled.div<{ $active: boolean }>`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: ${(p) =>
+    p.$active ? "rgba(74, 222, 128, 0.15)" : "rgba(255, 255, 255, 0.03)"};
+  border: 1px solid
+    ${(p) => (p.$active ? "#4ade80" : "rgba(255, 255, 255, 0.05)")};
+`;
+const IndicatorDot = styled.div<{ $active: boolean }>`
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: ${(p) => (p.$active ? "#4ade80" : "#555")};
+  box-shadow: ${(p) => (p.$active ? "0 0 8px #4ade80" : "none")};
+`;
+const IndicatorLabel = styled.span`
+  font-size: 11px;
+  color: #fff;
+  white-space: nowrap;
+`;
+const RosStatus = styled.span<{ $online: boolean }>`
+  font-size: 11px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  color: ${(p) => (p.$online ? C.success : C.danger)};
+  ${(p) =>
+    p.$online &&
+    css`
+      animation: ${pulse} 3s ease-in-out infinite;
+    `}
 `;
 const Loader = styled.div`
   position: fixed;
@@ -1109,239 +1059,125 @@ const Loader = styled.div`
   justify-content: center;
   background: #fffbdecc;
   font-weight: 700;
-  font-size: 1rem;
+  font-size: 1.2rem;
   letter-spacing: 2px;
   color: ${C.panel};
   z-index: 999;
 `;
-
-// ── Detected Objects Card ────────────────────────────────────────────────────
-const DetectCard = styled.div`
-  background: ${C.panel};
-  border-radius: 12px;
-  border: 1px solid ${C.border};
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  max-height: 280px;
-  flex-shrink: 0;
-  animation: ${fadeUp} 0.3s ease;
-`;
-const DetectHeader = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 9px 14px;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 1.8px;
-  color: ${C.text};
-  border-bottom: 1px solid ${C.border};
-  flex-shrink: 0;
-`;
-const DetectHeaderRight = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 8px;
-`;
-const TopicBadge = styled.span`
-  font-size: 7px;
-  color: ${C.accent3};
-  letter-spacing: 0.5px;
-  font-family: "Consolas", monospace;
-  background: ${C.bg};
-  padding: 2px 6px;
-  border-radius: 3px;
-  border: 1px solid ${C.border};
-`;
 const LatestWrap = styled.div`
-  padding: 10px 14px 8px;
-  border-bottom: 1px solid ${C.border};
-  flex-shrink: 0;
+  padding: 12px 16px;
+  border-top: 1px solid ${C.border};
+  background: rgba(0, 0, 0, 0.1);
 `;
 const LatestLabel = styled.div`
-  font-size: 7px;
+  font-size: 8px;
+  font-weight: bold;
   letter-spacing: 1.5px;
   color: ${C.muted};
   margin-bottom: 4px;
 `;
 const LatestValue = styled.div<{ $color: string }>`
-  font-size: 1rem;
+  font-size: 1.2rem;
   font-weight: 700;
-  font-family: "Consolas", monospace;
   color: ${(p) => p.$color};
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-`;
-const LogLabel = styled.div`
-  padding: 5px 14px 2px;
-  font-size: 7px;
-  letter-spacing: 1.5px;
-  color: ${C.muted};
-  flex-shrink: 0;
-`;
-const LogScroll = styled.div`
-  flex: 1;
-  overflow-y: auto;
-  padding: 4px 14px 8px;
-  &::-webkit-scrollbar {
-    width: 3px;
-  }
-  &::-webkit-scrollbar-thumb {
-    background: ${C.border};
-    border-radius: 2px;
-  }
 `;
 const LogEmpty = styled.div`
-  font-size: 9px;
-  color: ${C.muted};
-  padding: 8px 0;
-  text-align: center;
-  font-family: "Consolas", monospace;
-`;
-const LogLine = styled.div<{ $color: string }>`
-  display: flex;
-  gap: 8px;
-  align-items: baseline;
-  padding: 2px 0;
-  border-bottom: 1px solid ${C.border}22;
-  font-family: "Consolas", monospace;
-  font-size: 9px;
-  line-height: 1.6;
-  color: ${(p) => p.$color};
-`;
-const LogTs = styled.span`
-  color: ${C.muted};
-  flex-shrink: 0;
-  font-size: 8px;
-`;
-const LogMsg = styled.span`
-  color: inherit;
-  word-break: break-all;
-`;
-
-// ── Mission Status Card ───────────────────────────────────────────────────────
-const MissionCard = styled.div`
-  background: ${C.panel};
-  border-radius: 12px;
-  border: 1px solid ${C.border};
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  animation: ${fadeUp} 0.3s ease;
-`;
-const MCardHeader = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 9px 14px;
   font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 1.8px;
-  color: ${C.text};
-  border-bottom: 1px solid ${C.border};
-  flex-shrink: 0;
+  color: ${C.muted};
+  padding: 12px 0;
+  text-align: center;
 `;
+const MCardHeader = styled(CardHeader)``;
 const MHeaderRight = styled.div`
   display: flex;
   align-items: center;
   gap: 8px;
 `;
 const RunBadge = styled.span`
-  font-size: 8px;
+  font-size: 9px;
+  font-weight: bold;
   color: ${C.success};
-  letter-spacing: 1px;
-  animation: ${pulse} 2s ease-in-out infinite;
+  animation: ${pulse} 2s infinite;
 `;
 const IdleBadge = styled.span`
-  font-size: 8px;
+  font-size: 9px;
+  font-weight: bold;
   color: ${C.muted};
-  letter-spacing: 1px;
 `;
 const MInfoRow = styled.div`
   display: flex;
-  align-items: center;
-  padding: 12px 16px;
+  padding: 16px;
   border-bottom: 1px solid ${C.border};
-  flex-shrink: 0;
 `;
 const MInfoBox = styled.div`
   flex: 1;
   text-align: center;
 `;
 const MInfoLabel = styled.div`
-  font-size: 7px;
+  font-size: 8px;
+  font-weight: bold;
   color: ${C.muted};
   letter-spacing: 1.5px;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 `;
 const MInfoValue = styled.div<{ $color: string }>`
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 700;
   color: ${(p) => p.$color};
-  font-family: "Consolas", monospace;
 `;
 const MInfoDivider = styled.div`
   width: 1px;
-  height: 36px;
+  height: 40px;
   background: ${C.border};
-  flex-shrink: 0;
 `;
-
 const ProgressWrap = styled.div`
   position: relative;
-  margin: 24px ;
-  height: 6px;
+  margin: 24px 16px;
+  height: 8px;
   background: ${C.border};
-  border-radius: 3px;
-  overflow: visible;
-  flex-shrink: 0;
+  border-radius: 4px;
 `;
 const ProgressBar = styled.div<{ $running: boolean }>`
   height: 100%;
-  border-radius: 3px;
+  border-radius: 4px;
   transition: width 0.4s ease;
   background: ${(p) => (p.$running ? C.accent : C.muted)};
   ${(p) =>
     p.$running &&
     css`
-      animation: ${scanPulse} 2s ease-in-out infinite;
+      animation: ${scanPulse} 2s infinite;
     `}
 `;
 const ProgressLabel = styled.div`
   position: absolute;
   right: 0;
-  top: -16px;
-  font-size: 8px;
+  top: -18px;
+  font-size: 9px;
+  font-weight: bold;
   color: ${C.muted};
-  font-family: "Consolas", monospace;
 `;
-
 const StepBubbleRow = styled.div`
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
-  padding: 10px 14px 4px;
-  flex-shrink: 0;
+  gap: 6px;
+  padding: 0 16px 16px;
 `;
 const StepBubble = styled.div<{ $done: boolean; $current: boolean }>`
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   background: ${(p) =>
     p.$current ? C.accent : p.$done ? C.accent + "88" : C.border};
   border: 1px solid ${(p) => (p.$current ? C.accent : "transparent")};
-  transition: background 0.3s;
   ${(p) =>
     p.$current &&
     css`
-      animation: ${scanPulse} 1.5s ease-in-out infinite;
+      animation: ${scanPulse} 1.5s infinite;
     `}
 `;
 const StepMore = styled.span`
-  font-size: 8px;
+  font-size: 9px;
+  font-weight: bold;
   color: ${C.muted};
-  line-height: 10px;
+  line-height: 12px;
 `;
